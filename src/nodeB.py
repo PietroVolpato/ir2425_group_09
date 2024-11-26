@@ -1,96 +1,137 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
+"""
+Node B Skeleton
+
+This node is responsible for:
+1. Navigating through the environment to search for Apriltags on red cubes.
+2. Using the camera and laser scanner to detect obstacles and Apriltags.
+3. Transforming detected Apriltag poses to the map frame using TF.
+4. Sending feedback about the robot's status to Node A.
+5. Publishing the final positions of cubes with matching Apriltags to Node A.
+"""
 
 import rospy
-from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String
-from sensor_msgs.msg import Image, PointCloud2
 import tf
-from tiago_iaslab_simulation.srv import Objs  # Import the service definition to interact with Node A
-from std_msgs.msg import Int32MultiArray
+from geometry_msgs.msg import PoseArray, PoseStamped
+from std_msgs.msg import String, Int32MultiArray
+from sensor_msgs.msg import LaserScan, Image
+from apriltag_ros.msg import AprilTagDetectionArray
 
-class NavigationNode:
+class NodeB:
+    """
+    Node B handles navigation, Apriltag detection, pose transformation, and communication with Node A.
+    """
     def __init__(self):
-        rospy.init_node('navigation_node')
+        # Initialize the node
+        rospy.init_node('node_b', anonymous=True)
+        rospy.loginfo("Node B initialized.")
 
-        # Publishers for robot status and cube positions
-        self.status_pub = rospy.Publisher('/robot_status', String, queue_size=10)
-        self.cube_positions_pub = rospy.Publisher('/final_cube_positions', PoseArray, queue_size=10)
+        # Subscribe to Apriltag IDs from Node A
+        rospy.Subscriber('/apriltag_ids', Int32MultiArray, self.ids_callback)
 
-        # TF listener for pose transformation
+        # Publisher for feedback to Node A
+        self.feedback_pub = rospy.Publisher('/node_b_feedback', String, queue_size=10)
+
+        # Publisher for final cube positions to Node A
+        self.result_pub = rospy.Publisher('/final_cube_positions', PoseArray, queue_size=10)
+
+        # Apriltag detections subscriber (from the robot's camera)
+        rospy.Subscriber('/camera/apriltag_detections', AprilTagDetectionArray, self.tag_callback)
+
+        # TF listener for pose transformations
         self.tf_listener = tf.TransformListener()
 
-        # Subscriber to receive Apriltag IDs from Node A
-        rospy.Subscriber('/apriltag_ids', Int32MultiArray, self.apriltag_ids_callback)
-
-        # Subscriber to listen to camera data for AprilTag detection
-        rospy.Subscriber('/camera_topic', Image, self.camera_callback)
-
-        # Store the target Apriltag IDs received from Node A
+        # Placeholder for Apriltag IDs to be found
         self.target_ids = []
 
-        rospy.loginfo("Node B initialized and waiting for Apriltag IDs from Node A.")
+        # Placeholder for final cube positions
+        self.cube_positions = PoseArray()
 
-    def apriltag_ids_callback(self, msg):
+    def ids_callback(self, msg):
         """
-        Callback to receive Apriltag IDs from Node A.
+        Receives the target Apriltag IDs from Node A.
+        TODO:
+        - Store the list of target IDs.
+        - Log the received IDs for debugging.
         """
-        self.target_ids = msg.data  # Store the received IDs
-        rospy.loginfo(f"Received Apriltag IDs: {self.target_ids}")
+		self.target_ids = msg.data
+        rospy.loginfo("Received Apriltag IDs: %s", msg.data)
+        # Store the target IDs in the class variable
+        self.target_ids = msg.data
 
-    def navigate_environment(self):
-        self.publish_status("Robot is navigating...")
-        # Implement navigation logic (e.g., move_base or custom logic)
-        rospy.sleep(1)  # Placeholder for actual navigation logic
+    def tag_callback(self, msg):
+        """
+        Processes Apriltag detections.
+        TODO:
+        - Check if detected IDs match target IDs.
+        - For matching IDs, retrieve pose from camera frame.
+        - Transform pose to map frame using TF.
+        - Store transformed poses in `self.cube_positions`.
+        - Publish feedback about detected Apriltags.
+        """
+        rospy.loginfo("Apriltag detection callback triggered.")
+        # Loop through detected Apriltags in the message
 
-    def camera_callback(self, data):
+    def navigate_and_search(self):
         """
-        Callback to process camera data and detect AprilTags.
+        Handles navigation and scanning tasks.
+        TODO:
+        - Implement navigation logic (e.g., predefined waypoints or exploration).
+        - Use sensors like LaserScan to avoid obstacles.
+        - Continuously monitor for Apriltag detections.
+        - Publish feedback about navigation progress.
         """
-        detected_tags = []  # Replace with actual AprilTag detection logic
-        for tag in detected_tags:
-            if tag.id in self.target_ids:
-                self.process_tag(tag)
+        rospy.loginfo("Starting navigation and search routine.")
+        # Example feedback (update as needed during implementation)
+        self.send_feedback("Robot is navigating and searching for Apriltags.")
 
-    def process_tag(self, tag):
+    def transform_pose(self, pose_camera):
         """
-        Process each detected AprilTag, transform pose and publish final position.
+        Transforms a pose from the camera frame to the map frame.
+        TODO:
+        - Use TF to perform the transformation.
+        - Handle potential exceptions (e.g., transform not available).
+        - Return the transformed pose.
         """
-        self.publish_status(f"Detected AprilTag ID: {tag.id}")
-
         try:
-            # Transform tag pose from camera frame to map frame
-            tag_pose_map = self.tf_listener.transformPose("map", tag.pose)
+            # Wait for transform and apply transformation
+            rospy.loginfo("Transforming pose from camera frame to map frame.")
+            # Add the logic here
+            pass
+        except tf.Exception as e:
+            rospy.logerr(f"TF Error: {e}")
+            return None
 
-            # Publish the cube's final position
-            self.publish_cube_position(tag.id, tag_pose_map)
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            rospy.logerr("TF Transform failed")
+    def send_feedback(self, message):
+        """
+        Publishes feedback about the robot's status to Node A.
+        TODO:
+        - Create a feedback message.
+        - Publish the message to `/node_b_feedback`.
+        """
+        rospy.loginfo(f"Feedback: {message}")
+        # Publish the feedback as a String message
+        feedback_msg = String(data=message)
+        self.feedback_pub.publish(feedback_msg)
 
-    def publish_status(self, status):
+    def send_results(self):
         """
-        Publish robot's status to /robot_status topic.
+        Sends the final list of cube positions to Node A.
+        TODO:
+        - Publish the `self.cube_positions` PoseArray to `/final_cube_positions`.
+        - Send a final feedback message indicating task completion.
         """
-        self.status_pub.publish(String(data=status))
-
-    def publish_cube_position(self, tag_id, pose):
-        """
-        Publish final position of the cube corresponding to the detected AprilTag.
-        """
-        # Assuming `pose` is of type `PoseStamped`
-        pose_msg = PoseStamped()
-        pose_msg.header.frame_id = "map"  # Map frame
-        pose_msg.pose = pose.pose  # Pose transformation from camera to map frame
-
-        # Publish the PoseArray with final positions
-        pose_array = PoseArray()
-        pose_array.header = pose_msg.header
-        pose_array.poses.append(pose_msg.pose)
-        self.cube_positions_pub.publish(pose_array)
+        rospy.loginfo("Sending final cube positions to Node A.")
+        # Publish the cube positions
+        self.result_pub.publish(self.cube_positions)
+        self.send_feedback("Detection complete. Final positions sent.")
 
 if __name__ == '__main__':
     try:
-        node = NavigationNode()
-        rospy.spin()
+        # Instantiate Node B and start the main routine
+        node = NodeB()
+        rospy.spin()  # Keeps the node alive and listening for messages
     except rospy.ROSInterruptException:
-        rospy.loginfo("Navigation Node B terminated.")
+        rospy.loginfo("Node B terminated.")
 
