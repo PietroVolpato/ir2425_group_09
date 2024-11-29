@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import rospy
+import tf
 from geometry_msgs.msg import PoseArray
 from std_msgs.msg import String
 from tiago_iaslab_simulation.srv import Objs
@@ -24,6 +25,9 @@ class GoalManagementNode:
 
         # Publisher to update node_A (e.g. "task completed")
         self.status_pub = rospy.Publisher('/node_b_feedback', String, queue_size=10)
+
+        # TF listener
+        self.tf_listener = tf.TransformListener()
 
         # Target AprilTag IDs (from Node A)
         self.target_ids = self.get_target_ids()
@@ -51,19 +55,39 @@ class GoalManagementNode:
         """
         for pose in msg.poses:
             tag_id = int(pose.orientation.w)  # NOTE: we are putting the ID in the .orientation.w field (the orientation of the tags is not required)
-            if tag_id in self.target_ids and tag_id not in self.found_tags:  # new desired apriltag found 
-                rospy.loginfo(f"Found target AprilTag ID: {tag_id}")
-                self.found_tags[tag_id] = pose.position  # Store the position of the apriltag
-                self.status_pub.publish(String(data=f"Tag {tag_id} found!"))  # update node_A about the new tag found 
+            if tag_id in self.target_ids and tag_id not in self.found_tags:  # new desired apriltag found
+                pose_in_map_frame = self.transform_to_map_frame(pose)    # Transform the pose to the map frame
+                if pose_in_map_frame:
+                    rospy.loginfo(f"Found target AprilTag ID: {tag_id}")
+                    self.found_tags[tag_id] = pose_in_map_frame.position   # store the pose of the tag in map reference frame
+                    self.status_pub.publish(String(data=f"Tag {tag_id} found!"))  # update node_A about the new tag found 
 
-                # check if we finished the task
-                if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
-                    rospy.loginfo("All target tags found! Stopping exploration.")
-                    self.exploration_active = False
-                    self.publish_final_results()
-                    self.stop_exploration()  # finished the task
+                    # check if we finished the task
+                    if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
+                        rospy.loginfo("All target tags found! Stopping exploration.")
+                        self.exploration_active = False
+                        self.publish_final_results()
+                        self.stop_exploration()  # finished the task
 
+    def transform_to_map_frame(self, pose):
+        """
+        Transform a pose from the camera frame to the map frame using tf.
+        """
+        try:
+            # Prepare PoseStamped from the given pose
+            pose_stamped = PoseStamped()
+            pose_stamped.header.frame_id = "xtion_rgb_optical_frame"  # Camera frame
+            pose_stamped.header.stamp = rospy.Time.now()
+            pose_stamped.pose = pose
 
+            # Wait for the transform to become available
+            self.tf_listener.waitForTransform("map", "xtion_rgb_optical_frame", rospy.Time(0), rospy.Duration(2.0))
+            pose_in_map_frame = self.tf_listener.transformPose("map", pose_stamped)
+            return pose_in_map_frame
+        except (tf.Exception, tf.LookupException, tf.ConnectivityException) as e:
+            rospy.logwarn(f"Transform failed: {e}")
+        return None
+    
     def navigation_callback(self, msg):
         """
         Callback to handle feedback from the navigation node.
