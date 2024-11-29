@@ -19,4 +19,4 @@ jobs:
           BITBUCKET_APP_PASSWORD: ${{ secrets.BITBUCKET_APP_PASSWORD }}
         run: |
           git remote add bitbucket https://$BITBUCKET_USERNAME:$BITBUCKET_APP_PASSWORD@bitbucket.org/pietro_volpato/ir2425_group_09.git
-          git push bitbucket main
+          git push bitbucket main --force
