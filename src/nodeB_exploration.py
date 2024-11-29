@@ -8,6 +8,7 @@ import math
 import actionlib
 import numpy as np
 
+#NOT TESTED!!!!!!
 class ExplorationNode:
     def __init__ (self):
         rospy.init_node('exploration_node')
