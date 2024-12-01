@@ -1,70 +1,56 @@
+#!/usr/bin/env python3
 import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import String
 import math
 import numpy as np
 
-#NOT TESTED!!!!!!
 class ExplorationNode:
-    def __init__ (self):
-        rospy.init_node('exploration_node')
+    def __init__(self):
+        rospy.init_node('exploration_node', anonymous=True)
 
-        #Publisher
+        # Publisher to send goals
         self.goal_pub = rospy.Publisher('/exploration_goal', PoseStamped, queue_size=10)
-        self.exploration_pub = rospy.Publisher('/exploration_status', String, queue_size=10)
 
-        #Subscriber
+        # Subscriber to get laser scan data
         rospy.Subscriber('/scan_raw', LaserScan, self.laser_callback)
 
-        #Variables
+        # Parameters
         self.safe_distance = 0.5
-        self.visited_goal = []
 
     def laser_callback(self, msg):
-        """Process the laser scan data to find the nearest obstacle"""
-        #Find the nearest obstacle
-        min_dist = min(msg.ranges)
-        min_index = np.argmin(msg.ranges)
-        angle = msg.angle_min + min_index * msg.angle_increment
+        """Process laser data and publish a goal to explore."""
+        # Find indices of scan ranges that are safe
+        safe_indices = [i for i, distance in enumerate(msg.ranges)
+                        if distance > self.safe_distance and not math.isinf(distance)]
 
-        #Check if the nearest obstacle is close enough
-        if min_dist < self.safe_distance:
-            #Find the angle of the obstacle
-            angle = msg.angle_min + min_index * msg.angle_increment
-            #Find the position of the obstacle
-            x = min_dist * math.cos(angle)
-            y = min_dist * math.sin(angle)
-            #Find the goal position
-            goal_x = x + 0.5
-            goal_y = y + 0.5
-            #Publish the goal
-            self.publish_goal(goal_x, goal_y)
+        if not safe_indices:
+            rospy.loginfo("No safe points detected.")
+            return
 
-    def publish_goal(self, x, y):
-        """Publish the goal"""
+        # Select a point to navigate to
+        chosen_index = np.random.choice(safe_indices)
+        angle = msg.angle_min + chosen_index * msg.angle_increment
+        distance = msg.ranges[chosen_index]
+
+        # Compute coordinates
+        x = distance * math.cos(angle)
+        y = distance * math.sin(angle)
+
+        # Create and publish the goal
         goal = PoseStamped()
-        goal.header.frame_id = 'map'
+        goal.header.frame_id = msg.header.frame_id  # Use the same frame as the laser scan
+        goal.header.stamp = rospy.Time.now()
         goal.pose.position.x = x
         goal.pose.position.y = y
+        goal.pose.orientation.w = 1.0  # Facing forward
+
         self.goal_pub.publish(goal)
-
-    def run(self):
-        """Run the exploration node"""
-        rate = rospy.Rate(10)
-        while not rospy.is_shutdown():
-            #Check if the goal is reached
-            if self.is_goal_reached():
-                #Publish the goal
-                self.publish_goal()
-            rate.sleep()
-
-        rospy.spin()
-
-    def is_goal_reached(self):
-        """Check if the goal is reached"""
-        pass
+        rospy.loginfo(f"Published goal to x: {x:.2f}, y: {y:.2f}")
 
 if __name__ == '__main__':
-    node = ExplorationNode()
-    node.run()
+    try:
+        node = ExplorationNode()
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass

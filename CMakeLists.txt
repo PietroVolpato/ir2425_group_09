@@ -163,7 +163,6 @@ include_directories(
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
   src/nodeA.py
-  src/nodeB.py
   src/nodeB_exploration.py
   src/nodeB_navigation.py
   src/nodeB_goal_management.py
