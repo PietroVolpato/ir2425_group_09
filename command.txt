@@ -1,0 +1,9 @@
+roslaunch tiago_iaslab_simulation start_simulation.launch world_name:=iaslab_assignment1
+roslaunch tiago_iaslab_simulation navigation.launch
+roslaunch tiago_iaslab_simulation apriltag.launch
+rosrun tiago_iaslab_simulation apriltag_ids_generator_node
+rosrun ir2425_group_09 nodeA.py
+rosrun ir2425_group_09 nodeB.py
+rosrun ir2425_group_09 nodeB_goal_management.py
+rosrun ir2425_group_09 nodeB_navigation.py
+rosrun ir2425_group_09 nodeB_exploration.py

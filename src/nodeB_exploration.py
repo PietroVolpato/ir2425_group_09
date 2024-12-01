@@ -1,11 +1,8 @@
 import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
-from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from std_msgs.msg import String
-from tf import TransformListener
 import math
-import actionlib
 import numpy as np
 
 #NOT TESTED!!!!!!
@@ -13,90 +10,60 @@ class ExplorationNode:
     def __init__ (self):
         rospy.init_node('exploration_node')
 
-        #Subscribe to the topic for the scan
-        self.scan_sub = rospy.Subscriber('/scan_raw', LaserScan, self.scan_callback)
-
-        #Client for the navigation stack
-        self.client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
-        self.client.wait_for_server()
-
-        #Publisher for the goal
+        #Publisher
         self.goal_pub = rospy.Publisher('/exploration_goal', PoseStamped, queue_size=10)
-        self.status_pub = rospy.Publisher('/exploration_status', String, queue_size=10)
+        self.exploration_pub = rospy.Publisher('/exploration_status', String, queue_size=10)
 
-        #Transform listener
-        self.tf = TransformListener()
+        #Subscriber
+        rospy.Subscriber('/scan_raw', LaserScan, self.laser_callback)
 
         #Variables
-        self.min_distance = 1.0
-        self.scan_data = None
+        self.safe_distance = 0.5
+        self.visited_goal = []
 
-    def scan_callback(self, msg):
-        """"Process the scan data"""
-        self.scan_data = msg
+    def laser_callback(self, msg):
+        """Process the laser scan data to find the nearest obstacle"""
+        #Find the nearest obstacle
+        min_dist = min(msg.ranges)
+        min_index = np.argmin(msg.ranges)
+        angle = msg.angle_min + min_index * msg.angle_increment
 
-    def find_obstacles(self):
-        """
-        Function to find the obstacles in the scan data
-        """
-        if self.scan_data is None:
-            return []
-        
-        ranges = np.array(self.scan_data.ranges)
-        angle_min = self.scan_data.angle_min
-        angle_increment = self.scan_data.angle_increment
+        #Check if the nearest obstacle is close enough
+        if min_dist < self.safe_distance:
+            #Find the angle of the obstacle
+            angle = msg.angle_min + min_index * msg.angle_increment
+            #Find the position of the obstacle
+            x = min_dist * math.cos(angle)
+            y = min_dist * math.sin(angle)
+            #Find the goal position
+            goal_x = x + 0.5
+            goal_y = y + 0.5
+            #Publish the goal
+            self.publish_goal(goal_x, goal_y)
 
-        #Find the obstacles
-        obstacles = []
-        
-        for i in range(len(ranges)):
-            if abs(ranges[i+1] - ranges[i]) < self.min_distance:
-                angle = angle_min + i * angle_increment
-                x, y = self.polar_to_cartesian(ranges[i], angle)
-                obstacles.append((x, y))
-
-        return obstacles
-
-    def find_free_spaces(self):
-        """Analyze scan data to find free spaces to move using the find obstacles function"""
-        obstacles = self.find_obstacles()
-        free_spaces = []
-        for i in range(len(obstacles)-1):
-            x1, y1 = obstacles[i]
-            x2, y2 = obstacles[i+1]
-            x = (x1 + x2) / 2
-            y = (y1 + y2) / 2
-            free_spaces.append((x, y))
-        return free_spaces
-
-    def polar_to_cartesian(self, r, theta):
-        x = r * math.cos(theta)
-        y = r * math.sin(theta)
-        return x, y
-    
-    def move_to_goal(self, x, y):
-        """Move to the given goal"""
-        goal = MoveBaseGoal()
-        goal.target_pose.header.frame_id = 'base_link'
-        goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.pose.position.x = x
-        goal.target_pose.pose.position.y = y
-        goal.target_pose.pose.orientation.w = 1.0
-        self.client.send_goal(goal)
-        self.goal_pub.publish(goal.target_pose)
-        self.status_pub.publish('Moving to goal')
-        self.client.wait_for_result()
-        self.status_pub.publish('Goal reached')
+    def publish_goal(self, x, y):
+        """Publish the goal"""
+        goal = PoseStamped()
+        goal.header.frame_id = 'map'
+        goal.pose.position.x = x
+        goal.pose.position.y = y
+        self.goal_pub.publish(goal)
 
     def run(self):
-        """Main loop for the exploration node"""
+        """Run the exploration node"""
         rate = rospy.Rate(10)
         while not rospy.is_shutdown():
-            free_spaces = self.find_free_spaces()
-            if len(free_spaces) > 0:
-                x, y = free_spaces[0]
-                self.move_to_goal(x, y)
+            #Check if the goal is reached
+            if self.is_goal_reached():
+                #Publish the goal
+                self.publish_goal()
             rate.sleep()
+
+        rospy.spin()
+
+    def is_goal_reached(self):
+        """Check if the goal is reached"""
+        pass
 
 if __name__ == '__main__':
     node = ExplorationNode()

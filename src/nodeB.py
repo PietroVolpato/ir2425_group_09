@@ -55,7 +55,7 @@ class NodeB:
         - Store the list of target IDs.
         - Log the received IDs for debugging.
         """
-		self.target_ids = msg.data
+        self.target_ids = msg.data
         rospy.loginfo("Received Apriltag IDs: %s", msg.data)
         # Store the target IDs in the class variable
         self.target_ids = msg.data
