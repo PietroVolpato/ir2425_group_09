@@ -1,0 +1,12 @@
+1) mi sono dimenticato che il nodo dell'apriltag detection deve mettere nel campo pose.w l'ID dell'apriltag trovato (il campo w non serve ed
+   è un modo efficace di passare l'ID al goal management node, che controlla se è un apriltag fra quelli target)
+2) il nodo apriltag detection spamma un po' troppo, si può tenere traccia dei tag già trovati in modo che a schermo appaia solo una volta il messaggio
+    "found apriltag id: X"
+3) si può far ruotare tiago più velocemente all'inizio, per ora è 0.4rad/s
+4) provate a vedere se a voi il map reference frame da' problemi. appena faccio partire "navigation.launch" (terminale 2 dell'assignment), a me da subito
+   errori che non trova il map reference frame. Ho dovuto togliere TF perchè dava errori in quanto il frame non esiste (almeno sul mio vlab)
+5) pare che adesso, con la camera angolata bene, tiago trova molto facilmente i tag. Secondo me è sufficiente fare una policy di movimento che
+  esplora l'ambiente piuttosto velocemente (e.g. dare a tiago goal che lo fanno muovere abbastanza), dovrebbe garantire un buon trade-off
+  fra tempo e performance. Ovviamente solo testarla può dimostrare se funziona, ma secondo me una strategia semplice è sufficiente.
+  Io ho pensato e ho già accennato a Pietro una possibile strategia non deterministica, è molto elegante ma richiede parecchi step per implementarla,
+  e come difficoltà di implementarla le darei un 7.5. Il lato positivo è che di certo il prof non può pensare che l'abbiamo presa da chatGPT.
