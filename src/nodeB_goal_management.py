@@ -25,7 +25,7 @@ class GoalManagementNode:
         # Publisher to send to node_A the apriltags positions, when all requested tags are detected
         self.final_results_pub = rospy.Publisher('/final_cube_positions', PoseArray, queue_size=10)
 
-        # Publisher to update node_A (e.g. "task completed")
+        # Publisher to send any feedback to node_A (e.g. "task completed")
         self.status_pub = rospy.Publisher('/node_b_feedback', String, queue_size=10)
 
         # publisher to send direct velocity commands
@@ -42,7 +42,7 @@ class GoalManagementNode:
         self.found_tags = {}  # disctionary to store positions of found tags
         self.exploration_active = True  # Indicates whether task is ongoing
 
-        rospy.loginfo(f"Goal Management Node initialized with target IDs: {self.target_ids}") # log to show that the IDs were correcly received
+        self.status_pub.publish(String(data=f"Targed IDs received: {self.target_ids}"))
 
 
     def rotate_360(self):
@@ -62,13 +62,12 @@ class GoalManagementNode:
         rate = rospy.Rate(10)  # 10 Hz
         start_time = rospy.Time.now()
 
-        rospy.loginfo("Starting 360-degree rotation...")
+        self.status_pub.publish(String(data="Performing 360° rotation."))  # update node_A about the new tag found.status_pub
         while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
             self.cmd_vel_pub.publish(rotate_cmd)
             rate.sleep()
-
+        self.status_pub.publish(String(data="Terminated 360° rotation."))
         # Stop the robot after rotation
-        rospy.loginfo("Stopping rotation...")
         self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
         rospy.sleep(1)
 
@@ -80,7 +79,7 @@ class GoalManagementNode:
         try:
             apriltag_service = rospy.ServiceProxy('/apriltag_ids_srv', Objs)
             response = apriltag_service(ready=True)
-            return response.ids
+            return [int(id) for id in response.ids]   # IMPORTANT CASTING TO INT.
         except rospy.ServiceException as e:
             rospy.logerr(f"Failed to call /apriltag_ids_srv: {e}")
             return []
@@ -91,44 +90,28 @@ class GoalManagementNode:
         """
         for pose in msg.poses:
             tag_id = int(pose.orientation.w)  # NOTE: we are putting the ID in the .orientation.w field (the orientation of the tags is not required)
-            if tag_id in self.target_ids and tag_id not in self.found_tags:  # new desired apriltag found
-                #pose_in_map_frame = self.transform_to_map_frame(pose)    # Transform the pose to the map frame
-                rospy.loginfo(f"Found target AprilTag ID: {tag_id}")
+            if tag_id in self.target_ids and tag_id not in self.found_tags.keys():  # new target apriltag found
+                
+                self.status_pub.publish(String(data=f"Found TARGET AprilTag ID: {tag_id}")) # feedback to node A
+
                 self.found_tags[tag_id] = pose.position   # store the pose of the tag in map reference frame
-                self.status_pub.publish(String(data=f"Tag {tag_id} found!"))  # update node_A about the new tag found 
+
+                self.status_pub.publish(String(data=f"Missing TERGET AprilTags: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
 
                 # check if we finished the task
                 if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
-                    rospy.loginfo("All target tags found! Stopping exploration.")
+                    self.status_pub.publish(String(data="All target tags found! Task is done."))
                     self.exploration_active = False
                     self.publish_final_results()
                     self.stop_exploration()  # finished the task
 
-    #def transform_to_map_frame(self, pose):
-        """
-        Transform a pose from the camera frame to the map frame using tf.
-        """
-     #   try:
-            # Prepare PoseStamped from the given pose
-      #      pose_stamped = PoseStamped()
-       #     pose_stamped.header.frame_id = "xtion_rgb_optical_frame"  # Camera frame
-        #    pose_stamped.header.stamp = rospy.Time.now()
-         #   pose_stamped.pose = pose
-
-            # Wait for the transform to become available
-          #  self.tf_listener.waitForTransform("map", "xtion_rgb_optical_frame", rospy.Time(0), rospy.Duration(2.0))
-           # pose_in_map_frame = self.tf_listener.transformPose("map", pose_stamped)
-            #return pose_in_map_frame
-        #except (tf.Exception, tf.LookupException, tf.ConnectivityException) as e:
-         #   rospy.logwarn(f"Transform failed: {e}")
-        #return None
-    
+   
     def navigation_callback(self, msg):
         """
         Callback to handle feedback from the navigation node.
         """
         feedback = msg.data
-        rospy.loginfo(f"Navigation feedback received: {feedback}")
+        #rospy.loginfo(f"Navigation feedback received: {feedback}")
 
         # if current goal is reached we request a new goal to nodeB_exploration
         if feedback == "Goal Reached" and self.exploration_active:
