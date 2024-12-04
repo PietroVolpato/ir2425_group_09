@@ -5,14 +5,17 @@ Node B: Apriltag Detection
 This node is responsible for:
 
     - Detecting Apriltags using the camera feed (/tag_detections).
-    - Publishing the positions of detected tags in the camera frame.
+    - Transforming detected tag positions to the map frame.
+    - Publishing the transformed positions, with the tag ID encoded in the orientation.w field.
 
 """
 
 import rospy
 from apriltag_ros.msg import AprilTagDetectionArray
-from geometry_msgs.msg import PoseArray
+from geometry_msgs.msg import PoseArray, PoseStamped
 from std_msgs.msg import String
+import tf2_ros
+from tf2_geometry_msgs import do_transform_pose
 
 
 class AprilTagDetectionNode:
@@ -27,31 +30,62 @@ class AprilTagDetectionNode:
         # Subscribers
         self.tag_sub = rospy.Subscriber('/tag_detections', AprilTagDetectionArray, self.tag_callback)
 
+        # TF2 setup
+        self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+
+        self.found_tags = []
+
     def tag_callback(self, msg):
         """
-        Processes AprilTag detections and publishes their poses in the camera frame.
+        Processes AprilTag detections, transforms their poses to the map frame, and publishes them.
         """
 
-        # Create a PoseArray message to store detected poses
+        # Create a PoseArray message for transformed poses
         detected_poses = PoseArray()
-        detected_poses.header.frame_id = "xtion_rgb_optical_frame"  # Camera frame
+        detected_poses.header.frame_id = "map"  # Target frame
         detected_poses.header.stamp = rospy.Time.now()
 
-        # Iterate over detected AprilTags
-        for detection in msg.detections:
-            tag_id = detection.id[0]
-            rospy.loginfo(f"Detected AprilTag ID: {tag_id}")
+        try:
+            # Lookup the transformation from the camera frame to the map frame
+            transform = self.tf_buffer.lookup_transform("map", "xtion_rgb_optical_frame", rospy.Time(0))
 
-            # Append the pose of the detected tag to the PoseArray
-            detected_poses.poses.append(detection.pose.pose.pose)
+            for detection in msg.detections:
+                tag_id = detection.id[0]
+                if (tag_id not in self.found_tags):                 
+                    try:
+                        # Create a PoseStamped object from the detected pose
+                        self.feedback_pub.publish(String(data=f"Detected AprilTag ID: {tag_id}"))  # feedback to node A
+                        pose_stamped = PoseStamped()
+                        pose_stamped.header.frame_id = "xtion_rgb_optical_frame"
+                        pose_stamped.header.stamp = rospy.Time.now()
+                        pose_stamped.pose = detection.pose.pose.pose
 
-        if detected_poses.poses:
-            # Publish the detected poses
-            self.tags_pub.publish(detected_poses)
-            self.feedback_pub.publish(String(data="Published poses of detected tags."))
-    
+                        # Transform the pose to the map frame
+                        transformed_pose = do_transform_pose(pose_stamped, transform)
+
+                        # Encode the tag ID in the orientation.w field
+                        transformed_pose.pose.orientation.w = float(tag_id)
+                        # Add the transformed pose to the PoseArray
+                        detected_poses.poses.append(transformed_pose.pose)
+                        self.found_tags.append(tag_id)
+                        self.feedback_pub.publish(String(data=f"All tags found from start: {self.found_tags}"))  # feedback to node A
+                    except Exception as e:
+                        rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
+
+            # Publish the transformed poses if any are detected
+            if detected_poses.poses:
+                self.tags_pub.publish(detected_poses)               
+
+        except tf2_ros.LookupException as e:
+            self.feedback_pub.publish(String(data=f"Transform lookup failed:{e}"))
+
+        except tf2_ros.ExtrapolationException as e:
+            self.feedback_pub.publish(String(data=f"Transform extrapolation error: {e}"))
 
     def run(self):
+        
         rospy.spin()
 
 
