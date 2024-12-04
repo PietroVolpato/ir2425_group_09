@@ -166,6 +166,7 @@ catkin_install_python(PROGRAMS
   src/nodeB_exploration.py
   src/nodeB_navigation.py
   src/nodeB_goal_management.py
+  src/nodeBapriltag_detection.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

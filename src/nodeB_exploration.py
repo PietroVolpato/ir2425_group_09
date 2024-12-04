@@ -7,6 +7,7 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped, Twist
 from actionlib_msgs.msg import GoalStatusArray
 from move_base_msgs.msg import MoveBaseActionFeedback
+from std_msgs.msg import String
 import tf
 
 class ExplorationNode:
@@ -18,6 +19,7 @@ class ExplorationNode:
 
         # Publisher per i goal
         self.goal_pub = rospy.Publisher('/exploration_goal', PoseStamped, queue_size=10)
+        self.command_sub = rospy.Subscriber('/exploration_command', String, self.command_callback)
 
         # Sottoscrizione ai topic di status e feedback
         self.status_sub = rospy.Subscriber('/move_base/status', GoalStatusArray, self.status_callback)
@@ -36,6 +38,7 @@ class ExplorationNode:
         self.min_distance_goal = 0.5  # Distanza minima per considerare valido un goal
         self.previous_goal = None  # Per evitare goal ridondanti
         self.initial_fallback_done = False
+        self.command = None
 
     def scan_callback(self, msg):
         self.scan_data = msg
@@ -59,6 +62,14 @@ class ExplorationNode:
         # Salva la posizione corrente dal feedback
         self.last_feedback_position = msg.feedback.base_position.pose
         rospy.loginfo(f"Current robot position: x={self.last_feedback_position.position.x}, y={self.last_feedback_position.position.y}")
+
+    def command_callback(self, msg):
+        self.command = msg.data.lower()
+        rospy.loginfo(f"Received command: {self.command})")
+        if self.command == 'continue':
+            self.explore()
+        elif self.command == 'stop':
+            rospy.loginfo("Stopping exploration...")
 
     def find_best_goal(self):
         """
@@ -153,9 +164,9 @@ class ExplorationNode:
         Ciclo principale di esplorazione.
         """
         while not rospy.is_shutdown():
-            if not self.initial_fallback_done:
-                self.perform_initial_fallback()
-                continue
+            # if not self.initial_fallback_done:
+            #     self.perform_initial_fallback()
+            #     continue
             rospy.loginfo("Analyzing LiDAR data for exploration...")
             best_goal = self.find_best_goal()
 

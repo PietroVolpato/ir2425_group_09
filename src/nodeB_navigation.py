@@ -1,62 +1,91 @@
 #!/usr/bin/env python3
+"""
+Navigation Node with Actionlib
+
+This node uses actionlib to send goals to the move_base action server and monitor their status.
+"""
+
 import rospy
+import actionlib
+from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
-from actionlib_msgs.msg import GoalStatusArray
-from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
-import actionlib
 
 class NavigationNode:
     def __init__(self):
         rospy.init_node('nodeB_navigation', anonymous=True)
+        rospy.loginfo("Navigation Node initialized.")
 
-        # Publisher to send feedback about the navigation
-        self.feedback_pub = rospy.Publisher('/navigation_feedback', String, queue_size=10)
-
-        # Subscriber to get the computed goal from nodeB_exploration
-        self.goal_sub = rospy.Subscriber('/exploration_goal', PoseStamped, self.goal_callback)
-
-        # Action client to communicate with move_base
+        # Action Client for move_base
         self.client = actionlib.SimpleActionClient('move_base', MoveBaseAction)
         rospy.loginfo("Waiting for move_base action server...")
         self.client.wait_for_server()
-        rospy.loginfo("Connected to move_base action server")
+        rospy.loginfo("Connected to move_base action server.")
 
-        # Internal state to store the current goal
+        # Publisher for navigation feedback
+        self.feedback_pub = rospy.Publisher('/navigation_feedback', String, queue_size=10)
+
+        # Subscriber to get exploration goals
+        rospy.Subscriber('/exploration_goal', PoseStamped, self.goal_callback)
+
+        # Internal state
+        self.current_goal = None
+        self.goal_history = []
+
+    def goal_callback(self, goal_msg):
+        """
+        Receives a PoseStamped goal from the exploration node and sends it to move_base.
+        """
+        # Create a MoveBaseGoal from the received PoseStamped
+        goal = MoveBaseGoal()
+        goal.target_pose = goal_msg
+        if (len(self.goal_history) < 1):
+            # Send goal to move_base
+            rospy.loginfo(f"Sending goal to move_base: x={goal_msg.pose.position.x}, y={goal_msg.pose.position.y}")
+            self.client.send_goal(goal, done_cb=self.done_callback, feedback_cb=self.feedback_callback)
+
+            # Publish feedback
+            self.feedback_pub.publish(String(data="Goal sent, navigating"))
+            self.current_goal = goal
+
+    def done_callback(self, status, result):
+        """
+        Callback for when the move_base action completes.
+        """
+        if status == actionlib.GoalStatus.SUCCEEDED:
+            rospy.loginfo("Goal reached successfully.")
+            self.feedback_pub.publish(String(data="Goal Reached"))
+            self.goal_history.append(self.current_goal)
+        elif status in [actionlib.GoalStatus.ABORTED, actionlib.GoalStatus.REJECTED]:
+            rospy.logwarn("Goal failed!")
+            self.feedback_pub.publish(String(data="Goal Failed"))
+        else:
+            rospy.loginfo("Goal was canceled or completed with an unknown status.")
+            self.feedback_pub.publish(String(data="Goal Unknown Status"))
+
+        # Clear current goal
         self.current_goal = None
 
-    def goal_callback(self, goal):
-        """Receive and send exploration goals to the Navigation Stack using SimpleActionClient."""
-        self.current_goal = goal  # Store the current goal
-
-        # Create a MoveBaseGoal
-        move_base_goal = MoveBaseGoal()
-        move_base_goal.target_pose.header = goal.header
-        move_base_goal.target_pose.pose = goal.pose
-
-        # Send the goal to move_base
-        rospy.loginfo("Sending goal to move_base")
-        self.client.send_goal(move_base_goal, feedback_cb=self.feedback_callback)
-
-        # Optionally, wait for result or handle it asynchronously
-        self.client.wait_for_result()
-        result = self.client.get_state()
-
-        if result == actionlib.GoalStatus.SUCCEEDED:
-            rospy.loginfo("Goal reached")
-            self.feedback_pub.publish("goal reached")
-        else:
-            rospy.loginfo("Goal not reached")
-            self.feedback_pub.publish("goal not reached")
-
     def feedback_callback(self, feedback):
-        """Handle feedback from move_base (optional)."""
-        # Process feedback if needed
-        pass
+        """
+        Callback for feedback during goal execution (optional).
+        """
+        rospy.loginfo("Navigation in progress...")
+
+    def cancel_goal(self):
+        """
+        Cancels the current goal in move_base.
+        """
+        rospy.loginfo("Cancelling current goal.")
+        self.client.cancel_goal()
+        self.feedback_pub.publish(String(data="Goal Cancelled"))
+
+    def run(self):
+        rospy.spin()
 
 if __name__ == '__main__':
     try:
         node = NavigationNode()
-        rospy.spin()
+        node.run()
     except rospy.ROSInterruptException:
         pass
