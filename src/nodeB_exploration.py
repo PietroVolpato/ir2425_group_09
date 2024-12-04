@@ -4,7 +4,9 @@ import rospy
 import math
 import numpy as np
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
+from actionlib_msgs.msg import GoalStatusArray
+from move_base_msgs.msg import MoveBaseActionFeedback
 import tf
 
 class ExplorationNode:
@@ -12,20 +14,51 @@ class ExplorationNode:
         rospy.init_node('simple_exploration_node')
 
         # Sottoscrizione al topic del LiDAR
-        self.lidar_sub = rospy.Subscriber('/scan_raw', LaserScan, self.lidar_callback)
+        self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_callback)
 
         # Publisher per i goal
         self.goal_pub = rospy.Publisher('/exploration_goal', PoseStamped, queue_size=10)
 
+        # Sottoscrizione ai topic di status e feedback
+        self.status_sub = rospy.Subscriber('/move_base/status', GoalStatusArray, self.status_callback)
+        
+        # Publisher per il comando di velocità
+        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.feedback_sub = rospy.Subscriber('/move_base/feedback', MoveBaseActionFeedback, self.feedback_callback)
+
         # TF listener per trasformazioni
         self.tf_listener = tf.TransformListener()
 
-        # Variabili per i dati del LiDAR
+        # Variabili per i dati del LiDAR e lo stato del robot
         self.scan_data = None
-        self.gap_threshold = 1.0  # Minima distanza tra ostacoli per considerare un gap
+        self.current_status = None
+        self.last_feedback_position = None
+        self.min_distance_goal = 0.5  # Distanza minima per considerare valido un goal
+        self.previous_goal = None  # Per evitare goal ridondanti
+        self.initial_fallback_done = False
 
-    def lidar_callback(self, msg):
+    def scan_callback(self, msg):
         self.scan_data = msg
+
+    def status_callback(self, msg):
+        if msg.status_list:
+            # Prendi lo stato dell'ultimo goal (il più recente)
+            self.current_status = msg.status_list[-1].status
+            if self.current_status == 1:
+                rospy.loginfo("Goal is active (being processed).")
+            elif self.current_status == 3:
+                rospy.loginfo("Goal succeeded!")
+            elif self.current_status == 4:
+                rospy.logwarn("Goal was aborted.")
+            elif self.current_status == 5:
+                rospy.logwarn("Goal was rejected.")
+            elif self.current_status == 9:
+                rospy.loginfo("Goal was cancelled.")
+
+    def feedback_callback(self, msg):
+        # Salva la posizione corrente dal feedback
+        self.last_feedback_position = msg.feedback.base_position.pose
+        rospy.loginfo(f"Current robot position: x={self.last_feedback_position.position.x}, y={self.last_feedback_position.position.y}")
 
     def find_best_goal(self):
         """
@@ -39,7 +72,7 @@ class ExplorationNode:
         angle_increment = self.scan_data.angle_increment
 
         # Filtra i dati validi
-        valid_indices = np.where(ranges > 0)[0]  # Ignora letture non valide (0 o inf)
+        valid_indices = np.where((ranges > self.min_distance_goal) & (ranges < self.scan_data.range_max))[0]
         if len(valid_indices) == 0:
             return None
 
@@ -87,11 +120,42 @@ class ExplorationNode:
         self.goal_pub.publish(goal)
         rospy.loginfo(f"Published goal: ({x}, {y})")
 
+    def wait_for_goal_result(self):
+        """
+        Attende finché il goal non viene completato o interrotto.
+        """
+        rospy.loginfo("Waiting for goal result...")
+        while not rospy.is_shutdown():
+            if self.current_status == 3:  # SUCCEEDED
+                rospy.loginfo("Goal reached successfully!")
+                return True
+            elif self.current_status in [4, 5, 9]:  # ABORTED, REJECTED, CANCELLED
+                rospy.logwarn("Goal failed or cancelled.")
+                return False
+            rospy.sleep(0.5)
+
+    def perform_initial_fallback(self):
+        """
+        Movimento iniziale per uscire da situazioni statiche.
+        """
+        rospy.loginfo("Performing initial fallback motion...")
+        goal = PoseStamped()
+        goal.header.frame_id = "map"
+        goal.header.stamp = rospy.Time.now()
+        goal.pose.position.x = 7
+        goal.pose.position.y = 0
+        goal.pose.orientation.w = 1.0
+        self.goal_pub.publish(goal)
+        self.initial_fallback_done = True
+
     def explore(self):
         """
         Ciclo principale di esplorazione.
         """
         while not rospy.is_shutdown():
+            if not self.initial_fallback_done:
+                self.perform_initial_fallback()
+                continue
             rospy.loginfo("Analyzing LiDAR data for exploration...")
             best_goal = self.find_best_goal()
 
@@ -103,22 +167,31 @@ class ExplorationNode:
             # Trasforma il goal nel frame della mappa
             map_x, map_y = self.transform_to_map(best_goal[0], best_goal[1])
             if map_x is not None and map_y is not None:
+                # Controlla se il goal è lo stesso dell'ultimo per evitare ridondanza
+                if self.previous_goal and math.isclose(map_x, self.previous_goal[0], abs_tol=0.1) and math.isclose(map_y, self.previous_goal[1], abs_tol=0.1):
+                    rospy.loginfo("Goal is too close to the previous one, skipping...")
+                    continue
+
+                self.previous_goal = (map_x, map_y)
                 self.publish_goal(map_x, map_y)
 
-            rospy.sleep(2)  # Aspetta che il robot raggiunga il goal prima di analizzare di nuovo
+                # Attendi il risultato del goal
+                if not self.wait_for_goal_result():
+                    rospy.logwarn("Moving to next goal due to failure.")
 
     def rotate_robot(self):
         """
         Rotazione semplice per scansionare l'ambiente.
         """
         rospy.loginfo("Rotating robot to find new areas...")
+        # Ruota sul posto pubblicando un goal temporaneo
         goal = PoseStamped()
         goal.header.frame_id = "map"
         goal.header.stamp = rospy.Time.now()
-        goal.pose.orientation.z = 1.0  # Rotazione sul posto
-        goal.pose.orientation.w = 0.0
+        goal.pose.orientation.z = 0.707  # 90 gradi in quaternion
+        goal.pose.orientation.w = 0.707
         self.goal_pub.publish(goal)
-        rospy.sleep(5)  # Aspetta qualche secondo per completare la rotazione
+        rospy.sleep(5)
 
 if __name__ == "__main__":
     explorer = ExplorationNode()
