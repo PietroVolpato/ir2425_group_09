@@ -9,6 +9,8 @@ from actionlib_msgs.msg import GoalStatusArray
 from move_base_msgs.msg import MoveBaseActionFeedback
 from std_msgs.msg import String
 import tf
+import tf2_ros
+import tf2_geometry_msgs
 
 class ExplorationNode:
     def __init__(self):
@@ -31,7 +33,8 @@ class ExplorationNode:
         # self.feedback_sub = rospy.Subscriber('/move_base/feedback', MoveBaseActionFeedback, self.feedback_callback)
 
         # TF listener per trasformazioni
-        self.tf_listener = tf.TransformListener()
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         # Variabili per i dati del LiDAR e lo stato del robot
         self.scan_data = None
@@ -47,7 +50,7 @@ class ExplorationNode:
         self.command = str(msg.data).lower()
         rospy.loginfo(f"Received command: {self.command})")
         if self.command == 'continue':
-            self.publish_goal(x=7, y=0)
+            # self.publish_goal(13.887776148415256, 0.09613783574128726)
             self.explore()
         elif self.command == 'stop':
             rospy.loginfo("Stopping exploration...")
@@ -79,12 +82,8 @@ class ExplorationNode:
             return x, y
 
     def transform_to_map(self, x, y):
-        while not self.tf_listener.canTransform('map', self.scan_data.header.frame_id, rospy.Time(0)):
-            rospy.logwarn("Waiting for TF...")
-            rospy.Duration(1.0).sleep()
-            
         try:
-            # Create a PoseStamped message in the 'base_link' frame
+            # Create PoseStamped in LiDAR frame
             base_goal = PoseStamped()
             base_goal.header.frame_id = self.scan_data.header.frame_id
             base_goal.header.stamp = rospy.Time.now()
@@ -92,17 +91,23 @@ class ExplorationNode:
             base_goal.pose.position.y = y
             base_goal.pose.orientation.w = 1.0
 
-            # Transform the pose to the 'map' frame
-            self.tf_listener.waitForTransform('map', base_goal.header.frame_id, rospy.Time(0), rospy.Duration(10.0))
-            map_goal = self.tf_listener.transformPose('map', base_goal)
+            # Look up transform
+            transform = self.tf_buffer.lookup_transform(
+                'map',
+                base_goal.header.frame_id,
+                rospy.Time(0),
+                rospy.Duration(10.0)
+            )
 
-            # Extract transformed coordinates
-            x_map = map_goal.pose.position.x
-            y_map = map_goal.pose.position.y
+            # Transform pose
+            map_goal = tf2_geometry_msgs.do_transform_pose(base_goal, transform)
+
+            x_map = int(map_goal.pose.position.x)
+            y_map = int(map_goal.pose.position.y)
 
             return x_map, y_map
-        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            rospy.logwarn("Failed to transform goal from " + base_goal.header.frame_id + " to map frame.")
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn(f"Failed to transform goal from {base_goal.header.frame_id} to 'map': {e}")
             return None, None
 
     def publish_goal(self, x, y):
@@ -115,8 +120,9 @@ class ExplorationNode:
         goal.pose.position.x = x
         goal.pose.position.y = y
         goal.pose.orientation.w = 1.0
+        goal.pose.orientation.z = 0.0
         self.goal_pub.publish(goal)
-        rospy.loginfo(f"Published goal: ({x}, {y})")
+        rospy.loginfo(f"Published goal: ({x}, {y}, {goal.pose.orientation.w}, {goal.pose.orientation.z})")
 
     def wait_for_goal_result(self):
         """
@@ -153,10 +159,6 @@ class ExplorationNode:
             # Publish the goal
             self.publish_goal(x, y)
 
-            # Wait for the goal result
-            if not self.wait_for_goal_result():
-                # Rotate the robot to find new areas
-                self.rotate_360()
 
     def rotate_360(self):
         """
