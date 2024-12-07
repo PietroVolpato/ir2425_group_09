@@ -39,14 +39,18 @@ class NavigationNode:
         # Create a MoveBaseGoal from the received PoseStamped
         goal = MoveBaseGoal()
         goal.target_pose = goal_msg
-        if (len(self.goal_history) < 1):
-            # Send goal to move_base
-            rospy.loginfo(f"Sending goal to move_base: x={goal_msg.pose.position.x}, y={goal_msg.pose.position.y}")
-            self.client.send_goal(goal, done_cb=self.done_callback, feedback_cb=self.feedback_callback)
+        # if (len(self.goal_history) < 1):
+        #     # Send goal to move_base
+        #     rospy.loginfo(f"Sending goal to move_base: x={goal_msg.pose.position.x}, y={goal_msg.pose.position.y}")
+        #     self.client.send_goal(goal, done_cb=self.done_callback, feedback_cb=self.feedback_callback)
 
-            # Publish feedback
-            self.feedback_pub.publish(String(data="Goal sent, navigating"))
-            self.current_goal = goal
+        #     # Publish feedback
+        #     self.feedback_pub.publish(String(data="Goal sent, navigating"))
+        #     self.current_goal = goal
+        rospy.loginfo(f"Sending goal to move_base: x={goal_msg.pose.position.x}, y={goal_msg.pose.position.y}")
+        self.client.send_goal(goal, done_cb=self.done_callback, feedback_cb=self.feedback_callback)
+        self.feedback_pub.publish(String(data="Goal sent, navigating"))
+        self.current_goal = goal
 
     def done_callback(self, status, result):
         """
@@ -70,7 +74,7 @@ class NavigationNode:
         """
         Callback for feedback during goal execution (optional).
         """
-        rospy.loginfo("Navigation in progress...")
+        # rospy.loginfo("Navigation in progress...")
 
     def cancel_goal(self):
         """
