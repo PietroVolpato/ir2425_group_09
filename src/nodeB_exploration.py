@@ -251,12 +251,13 @@ class ExplorationNode:
     def adjust_goal_position(self, x, y):
         # Adjust the goal position to a nearby free space
 
-        for dx in range(-1, 1):
-            for dy in range(-1, 1):
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
                 new_x = x + dx
                 new_y = y + dy
                 if self.is_free_space(new_x, new_y):
                     return new_x, new_y
+        return x, y  # Return original position if no free space found
         return x, y  # Return original position if no free space found
     
     def rotate(self):
