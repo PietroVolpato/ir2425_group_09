@@ -51,7 +51,6 @@ class ExplorationNode:
         self.command = str(msg.data).lower()
         rospy.loginfo(f"Received command: {self.command}")
         if self.command == 'continue':
-            # self.publish_goal(13, 2)
             self.explore()
         elif self.command == 'stop':
             rospy.loginfo("Stopping exploration...")
@@ -260,27 +259,6 @@ class ExplorationNode:
         return x, y  # Return original position if no free space found
         return x, y  # Return original position if no free space found
     
-    def rotate(self):
-        # Rotate the robot of 90 degrees
-        rospy.loginfo("Rotating robot.")
-        # Define the Twist message for rotation
-        rotate_cmd = Twist()
-        rotate_cmd.angular.z = 0.4  # Angular velocity in radians/second (counterclockwise)
-
-        # Calculate rotation duration for 90 degrees
-        rotation_duration = 0.5 * 3.14159 / abs(rotate_cmd.angular.z) 
-
-        rate = rospy.Rate(10)  # 10 Hz
-        start_time = rospy.Time.now()
-
-        self.status_pub.publish(String(data="Performing 90° rotation."))  # update node_A about the new tag found.status_pub
-        while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
-            self.cmd_vel_pub.publish(rotate_cmd)
-            rate.sleep()
-        self.status_pub.publish(String(data="Terminated 90° rotation."))
-        # Stop the robot after rotation
-        self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
-        rospy.sleep(1)
     
     def run(self):
         rospy.spin()
