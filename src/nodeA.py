@@ -51,15 +51,15 @@ class NodeA:
         """
         Callback to process feedback from Node B.
         """
-        rospy.loginfo(f"Feedback from Node B: {msg.data}")
+        rospy.loginfo(f"B says: {msg.data}")
 
     def result_callback(self, msg):
         """
         Callback to process the final results from Node B.
         """
-        rospy.loginfo("Final cube positions received:")
+        rospy.loginfo("FINAL CUBE POSITIONS RECEIVED:")
         for pose in msg.poses:
-            rospy.loginfo(f"Cube at: x={pose.position.x}, y={pose.position.y}, z={pose.position.z}")
+            rospy.loginfo(f"Target AprilTag {pose.orientation.w}: x={pose.position.x}, y={pose.position.y}")
 
 if __name__ == '__main__':
     try:
