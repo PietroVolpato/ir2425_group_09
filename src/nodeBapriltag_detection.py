@@ -79,10 +79,10 @@ class AprilTagDetectionNode:
                 self.tags_pub.publish(detected_poses)               
 
         except tf2_ros.LookupException as e:
-            self.feedback_pub.publish(String(data=f"Transform lookup failed:{e}"))
+            rospy.loginfo(f"Transform lookup failed:{e}")
 
         except tf2_ros.ExtrapolationException as e:
-            self.feedback_pub.publish(String(data=f"Transform extrapolation error: {e}"))
+            rospy.loginfo(f"Transform extrapolation error: {e}")
 
     def run(self):
         
