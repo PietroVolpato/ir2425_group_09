@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import rospy
-import tf
 from geometry_msgs.msg import PoseArray
 from std_msgs.msg import String
 from tiago_iaslab_simulation.srv import Objs
 from geometry_msgs.msg import Pose
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from geometry_msgs.msg import Twist
+import math
+import random
 
 
 class GoalManagementNode:
@@ -18,6 +19,7 @@ class GoalManagementNode:
 
         # Subscriber to get the feedback about navigation (e.g. goal reached or aborted). From nodeB_navigation
         self.nav_feedback_sub = rospy.Subscriber('/navigation_feedback', String, self.navigation_callback)
+
 
         # Publisher to send commands for the nodeB_exploration ( e.g. "Continue", "Stop").
         self.exploration_command_pub = rospy.Publisher('/exploration_command', String, queue_size=10)
@@ -33,11 +35,9 @@ class GoalManagementNode:
 
 
         self.head_pub = rospy.Publisher('/head_controller/command', JointTrajectory, queue_size=10) # to move the camera angle
-        rospy.sleep(1)  # Wait for the publisher to initialize
-        # TF listener
-        #self.tf_listener = tf.TransformListener()
 
-        # Target AprilTag IDs (from Node A)
+        rospy.sleep(1)  # Wait for the publisher to initialize
+
         self.target_ids = self.get_target_ids()
         self.found_tags = {}  # disctionary to store positions of found tags
         self.exploration_active = True  # Indicates whether task is ongoing
@@ -45,28 +45,27 @@ class GoalManagementNode:
         self.status_pub.publish(String(data=f"Targed IDs received: {self.target_ids}"))
 
 
-    def rotate_360(self):
+    def rotation(self, angle):
         """
-        This function is called once at the beginning, and is needed to let the camera see apriltags which are placed
-        behind or aside of tiago.
-        An appropriate angular velocity is applied to make tiago rotate on himself of 360°.
+        This function rotates tiago counterclockwise, by the angle specified as parameter.
+        An appropriate angular velocity is applied to make tiago rotate.
         """
 
         # Define the Twist message for rotation
         rotate_cmd = Twist()
-        rotate_cmd.angular.z = 0.4  # Angular velocity in radians/second (counterclockwise)
+        rotate_cmd.angular.z = 0.8  # Angular velocity in radians/second (counterclockwise)
 
         # Calculate rotation duration for 360 degrees
-        rotation_duration = 2 * 3.14159 / abs(rotate_cmd.angular.z) 
+        rotation_duration = angle / abs(rotate_cmd.angular.z) 
 
         rate = rospy.Rate(10)  # 10 Hz
         start_time = rospy.Time.now()
 
-        self.status_pub.publish(String(data="Performing 360° rotation."))  # update node_A about the new tag found.status_pub
+        
         while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
             self.cmd_vel_pub.publish(rotate_cmd)
             rate.sleep()
-        self.status_pub.publish(String(data="Terminated 360° rotation."))
+        self.status_pub.publish(String(data="Rotation terminated"))
         # Stop the robot after rotation
         self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
         rospy.sleep(1)
@@ -94,13 +93,13 @@ class GoalManagementNode:
                 
                 self.status_pub.publish(String(data=f"Found TARGET AprilTag ID: {tag_id}")) # feedback to node A
 
-                self.found_tags[tag_id] = pose.position   # store the pose of the tag in map reference frame
+                self.found_tags[tag_id] = pose   # store the pose of the tag in map reference frame
 
                 self.status_pub.publish(String(data=f"Missing TERGET AprilTags: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
 
                 # check if we finished the task
                 if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
-                    self.status_pub.publish(String(data="All target tags found! Task is done."))
+                    self.status_pub.publish(String(data="All target tags found! Task is completed."))
                     self.exploration_active = False
                     self.publish_final_results()
                     self.stop_exploration()  # finished the task
@@ -111,50 +110,48 @@ class GoalManagementNode:
         Callback to handle feedback from the navigation node.
         """
         feedback = msg.data
-        #rospy.loginfo(f"Navigation feedback received: {feedback}")
-
         # if current goal is reached we request a new goal to nodeB_exploration
         if feedback == "Goal Reached" and self.exploration_active:
-            rospy.loginfo("Goal reached, requesting a new goal.")
+            self.status_pub.publish(String(data=f"Goal reached, requesting a new goal."))
             self.request_new_goal()
-        elif feedback == "Goal Failed" and self.exploration_active:
-            rospy.logwarn("Failed to reach goal, requesting a new goal.")
+        elif feedback == "Goal Failed" and self.exploration_active:         
+            self.status_pub.publish(String(data=f"Failed to reach goal, requesting a new goal."))           
+            self.request_new_goal()
+        elif feedback == "Time expired" and self.exploration_active:         
+            self.status_pub.publish(String(data=f"Timout reached for current goal, requesting a new goal."))           
             self.request_new_goal()
 
     def request_new_goal(self):
         """
-        Request the exploration node to generate a new goal.
+        Request the exploration node to generate a new goal
+        Before requesting the goal, a random rotation is performed
         """
+        self.status_pub.publish(String(data="Performing random rotation."))  
+        self.rotation(random.uniform(0, 2 * math.pi))
         exploration_command = String(data="Continue")   
         self.exploration_command_pub.publish(exploration_command)  # send command to nodeB_exploration
 
     def publish_final_results(self):
         """
         Publish the positions of all requested apriltags, using a message PoseArray.
+        The ids are stored in pose.orientation.w
         """
         result_msg = PoseArray()
         result_msg.header.frame_id = "map"
         result_msg.header.stamp = rospy.Time.now()
-        result_msg.poses = [self.pose_from_position(pos) for pos in self.found_tags.values()]
+        for id in self.found_tags.keys():
+            result_msg.append(self.found_tags[id])
+        self.status_pub.publish(String(data=f"Publishing final result to node A"))
+        rospy.sleep(2)
         self.final_results_pub.publish(result_msg)  # send results to nodeA
-        rospy.loginfo("Final results published.")
-
+        
     def stop_exploration(self):
         """
         command to the exploration and navigation nodes to stop.
         """
         stop_command = String(data="Stop")
         self.exploration_command_pub.publish(stop_command)
-        self.status_pub.publish(String(data="Exploration completed."))
 
-    def pose_from_position(self, position):
-        """
-        Helper to create a Pose message from a position, since data are returned through a PoseArray.
-        """
-        pose = Pose()
-        pose.position = position
-        pose.orientation.w = 1.0  # neutral orientation (orientation is not defined for this task)
-        return pose
     
     def tilt_camera(self, tilt_angle=-0.5):
         """
@@ -174,7 +171,7 @@ class GoalManagementNode:
         head_cmd.points.append(point)
 
         # Publish the command
-        rospy.loginfo(f"Tilting camera downward to angle {tilt_angle} radians.")
+        self.status_pub.publish(String(data=f"Tilting camera downward to angle {tilt_angle} radians."))
         self.head_pub.publish(head_cmd)
         rospy.sleep(2)  # Allow time for the movement to complete
 
@@ -188,7 +185,8 @@ class GoalManagementNode:
         self.tilt_camera(tilt_angle=-0.8)  # point camera down for the initial 360 rotation
         rospy.sleep(1)  # Give some time for all nodes to initialize
 
-        self.rotate_360()  # start the task by rotating tiago (the camera) of 360°
+        self.status_pub.publish(String(data="Performing 360° rotation."))  # update node_A about the new tag found.status_pub
+        self.rotation(2*math.pi)  # start the task by rotating tiago (the camera) of 360°
 
         self.tilt_camera(tilt_angle=-0.6)  # point camera on a suitable angle to see apriltags on the floor
         rospy.loginfo("Sending initial 'Continue' command to start exploration.")
