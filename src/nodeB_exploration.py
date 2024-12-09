@@ -44,8 +44,18 @@ class ExplorationNode:
         self.visited_points = []
         self.visited_threshold = 0.5
 
+        # Control parameters for motion control law navigation
+        self.min_distance_threshold = 0.1  # Minimum distance to obstacles (meters)
+        self.side_clearance = 0.3  # Ideal clearance from the walls (meters)
+        self.linear_speed = 0.5  # Base forward speed (m/s)
+        self.angular_speed = 0.5  # Base turning speed (rad/s)
+
+
     def scan_callback(self, msg):
+        """Callback for processing incoming laser scan data."""
         self.scan_data = msg
+        self.control_law()  # Added call to control law
+
 
     def command_callback(self, msg):
         self.command = str(msg.data).lower()
@@ -258,8 +268,58 @@ class ExplorationNode:
                     return new_x, new_y
         return x, y  # Return original position if no free space found
         return x, y  # Return original position if no free space found
-    
-    
+
+    def control_law(self):
+        """Control logic for navigating the robot through a narrow corridor.
+        
+        We split the laser scan into 3 parts: left front and right
+
+        The robot moves forward as long as there is no obstacle ahead, 
+        If an obstacle is detected (try putting one cylinder in the corridor the robot stops and rotates to the side with more free space)
+        If it is too close to a wall of a corridor it tends to stay centered by slightly turining to the opposite wall
+
+        Velocity control: the linear velocity is kept constant while the angular is dynamically adjusted
+        
+        """
+        if self.scan_data is None:
+            return
+
+        # Extract distances to obstacles
+        ranges = np.array(self.scan_data.ranges)
+        num_samples = len(ranges)
+        
+        # Filter out invalid or extreme range values
+        ranges = np.clip(ranges, 0, 10)  # Assume max range of 10 meters
+
+        # Get distances to the left, front, and right of the robot
+        left_indices = range(num_samples // 3, 2 * num_samples // 3)  # Left side
+        front_indices = range(num_samples // 2 - 10, num_samples // 2 + 10)  # Front side
+        right_indices = range(0, num_samples // 3)  # Right side
+
+        left_distance = np.mean(ranges[left_indices])
+        front_distance = np.mean(ranges[front_indices])
+        right_distance = np.mean(ranges[right_indices])
+
+        #rospy.loginfo(f"Distances - Left: {left_distance:.2f} m, Front: {front_distance:.2f} m, Right: {right_distance:.2f} m")
+
+        twist = Twist()
+
+        # **Decision to enter corridor control mode**
+        if front_distance < self.min_distance_threshold or left_distance < self.side_clearance or right_distance < self.side_clearance:
+            rospy.loginfo("Narrow passage detected, activating control law.")
+            
+            if front_distance < self.min_distance_threshold:
+                rospy.loginfo("Obstacle in front! Stopping or turning.")
+                twist.linear.x = 0
+                twist.angular.z = self.angular_speed if right_distance > left_distance else -self.angular_speed
+            else:
+                # Move forward and center the robot
+                twist.linear.x = self.linear_speed
+
+            rospy.loginfo(f"Publishing Twist - Linear: {twist.linear.x:.2f}, Angular: {twist.angular.z:.2f}")
+            self.cmd_vel_pub.publish(twist)
+        
+
     def run(self):
         rospy.spin()
     
