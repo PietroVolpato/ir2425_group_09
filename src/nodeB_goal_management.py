@@ -95,7 +95,7 @@ class GoalManagementNode:
 
                 self.found_tags[tag_id] = pose   # store the pose of the tag in map reference frame
 
-                self.status_pub.publish(String(data=f"Missing TERGET AprilTags: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
+                self.status_pub.publish(String(data=f"Missing TARGET AprilTags: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
 
                 # check if we finished the task
                 if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
