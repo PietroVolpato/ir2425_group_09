@@ -25,7 +25,7 @@ class AprilTagDetectionNode:
 
         # Publishers
         self.tags_pub = rospy.Publisher('/detected_tags', PoseArray, queue_size=10)
-        self.feedback_pub = rospy.Publisher('/node_b_feedback', String, queue_size=10)
+        self.status_pub = rospy.Publisher('/node_b_feedback', String, queue_size=10)
 
         # Subscribers
         self.tag_sub = rospy.Subscriber('/tag_detections', AprilTagDetectionArray, self.tag_callback)
@@ -56,7 +56,6 @@ class AprilTagDetectionNode:
                 if (tag_id not in self.found_tags):                 
                     try:
                         # Create a PoseStamped object from the detected pose
-                        self.feedback_pub.publish(String(data=f"Detected AprilTag ID: {tag_id}"))  # feedback to node A
                         pose_stamped = PoseStamped()
                         pose_stamped.header.frame_id = "xtion_rgb_optical_frame"
                         pose_stamped.header.stamp = rospy.Time.now()
@@ -70,7 +69,7 @@ class AprilTagDetectionNode:
                         # Add the transformed pose to the PoseArray
                         detected_poses.poses.append(transformed_pose.pose)
                         self.found_tags.append(tag_id)
-                        self.feedback_pub.publish(String(data=f"All tags found from start: {self.found_tags}"))  # feedback to node A
+                        self.status_pub.publish(String(data=f"DETCTED AprilTag: {tag_id}. ALL TAGS found from start: {self.found_tags}"))  # feedback to node A
                     except Exception as e:
                         rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
 
