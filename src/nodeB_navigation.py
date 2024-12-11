@@ -33,10 +33,15 @@ class NavigationNode:
         # Subscriber to get exploration goals
         rospy.Subscriber('/exploration_goal', PoseStamped, self.goal_callback)
 
+        # subscriber to know if the exploration is on control mode or not
+        rospy.Subscriber('/control_law_command', String, self.control_law_callback)
+
         # Internal state
         self.current_goal = None
         self.goal_start_time = None
-        self.goal_timeout = 30.0  # Timeout in seconds
+        self.goal_timeout = 20.0  # Timeout in seconds
+        self.max_linear_velocity = 2
+        self.number_of_goals = 0
 
     def goal_callback(self, goal_msg):
         """
@@ -46,12 +51,15 @@ class NavigationNode:
         goal = MoveBaseGoal()
         goal.target_pose = goal_msg
 
-        # Send the goal to move_base
-        self.client.send_goal(goal, done_cb=self.done_callback, feedback_cb=self.feedback_callback)
+        # Set planner constraints dynamically
+        rospy.set_param("/move_base/TebLocalPlannerROS/max_vel_x",self.max_linear_velocity)
 
         # Publish feedback
-        self.status_pub.publish(String(data=f"Goal sent: x={goal_msg.pose.position.x}, y={goal_msg.pose.position.y}. Tiago is moving"))
+        self.status_pub.publish(String(data=f"Sending GOAL: x={goal_msg.pose.position.x}, y={goal_msg.pose.position.y}. Tiago is moving"))
 
+        # Send the goal to move_base
+        self.client.send_goal(goal, done_cb=self.done_callback, feedback_cb=self.timeout_callback)
+        self.number_of_goals +=1
         # Update internal state
         self.current_goal = goal
         self.goal_start_time = time.time()
@@ -71,10 +79,10 @@ class NavigationNode:
         # Clear current goal
         self.current_goal = None
     
-    def feedback_callback(self, feedback):
+    def timeout_callback(self, feedback):
         """
         Callback to process feedback from move_base.
-        The goal is aborted is the elapsed time reaches the timeout
+        The goal is aborted is the elapsed time reaches the timeout,
         """
         if self.current_goal and self.goal_start_time:
             elapsed_time = time.time() - self.goal_start_time
@@ -86,6 +94,14 @@ class NavigationNode:
 
     def run(self):
         rospy.spin()
+    
+    def control_law_callback(self, msg):
+        command = str(msg.data).lower()
+        if command == "control law on":
+            self.client.cancel_goal()
+            self.status_pub.publish(String(data=f"CANCELLING CURRENT GOAL: control law mode on"))
+        if command == 'control law off':
+            self.feedback_pub.publish(String(data="control law off"))
 
 if __name__ == '__main__':
     try:
