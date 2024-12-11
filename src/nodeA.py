@@ -59,7 +59,10 @@ class NodeA:
         """
         rospy.loginfo("FINAL CUBE POSITIONS RECEIVED:")
         for pose in msg.poses:
-            rospy.loginfo(f"Target AprilTag {pose.orientation.w}: x={pose.position.x}, y={pose.position.y}")
+            id = int(pose.orientation.w)
+            x = "{:.3f}".format(pose.position.x)
+            y = "{:.3f}".format(pose.position.y)
+            rospy.loginfo(f"Target AprilTag {id}: x={x}, y={y}")
 
 if __name__ == '__main__':
     try:
