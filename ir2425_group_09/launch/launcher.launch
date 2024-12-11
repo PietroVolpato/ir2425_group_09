@@ -1,7 +1,0 @@
-<launch>
-    <node pkg="ir2425_group_09" type="nodeA.py" name="nodeA" output="screen"/>
-    <node pkg="ir2425_group_09" type="nodeB_exploration.py" name="exploration" output="screen"/>
-    <node pkg="ir2425_group_09" type="nodeB_navigation.py" name="navigation" output="screen"/>
-    <node pkg="ir2425_group_09" type="nodeB_goal_management.py" name="management" output="screen"/>
-    <node pkg="ir2425_group_09" type="nodeBapriltag_detection.py" name="detection" output="screen"/>
-</launch>
