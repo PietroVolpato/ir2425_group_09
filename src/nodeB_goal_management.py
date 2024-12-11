@@ -45,15 +45,16 @@ class GoalManagementNode:
         self.status_pub.publish(String(data=f"Targed IDs received: {self.target_ids}"))
 
 
-    def rotation(self, angle):
+    def rotation(self, angle, theta):
         """
-        This function rotates tiago counterclockwise, by the angle specified as parameter.
-        An appropriate angular velocity is applied to make tiago rotate.
+        This function make tiago rotate on himself.
+        Angle: total angle of desired rotation
+        Theta: angular velocity in rad/s. Positive for counterclockwise, negative for clockwise
         """
 
         # Define the Twist message for rotation
         rotate_cmd = Twist()
-        rotate_cmd.angular.z = 0.8  # Angular velocity in radians/second (counterclockwise)
+        rotate_cmd.angular.z = theta  # Angular velocity in radians/second (counterclockwise)
 
         # Calculate rotation duration for 360 degrees
         rotation_duration = angle / abs(rotate_cmd.angular.z) 
@@ -65,10 +66,9 @@ class GoalManagementNode:
         while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
             self.cmd_vel_pub.publish(rotate_cmd)
             rate.sleep()
-        self.status_pub.publish(String(data="Rotation terminated"))
+        #self.status_pub.publish(String(data="Rotation terminated"))
         # Stop the robot after rotation
         self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
-        rospy.sleep(1)
 
     def get_target_ids(self):
         """
@@ -91,20 +91,19 @@ class GoalManagementNode:
             tag_id = int(pose.orientation.w)  # NOTE: we are putting the ID in the .orientation.w field (the orientation of the tags is not required)
             if tag_id in self.target_ids and tag_id not in self.found_tags.keys():  # new target apriltag found
                 
-                self.status_pub.publish(String(data=f"Found TARGET AprilTag ID: {tag_id}")) # feedback to node A
+                self.status_pub.publish(String(
+                    data=f"FOUND TARGET AprilTag: {tag_id}. MISSING TARGETS: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
 
                 self.found_tags[tag_id] = pose   # store the pose of the tag in map reference frame
 
-                self.status_pub.publish(String(data=f"Missing TARGET AprilTags: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
-
                 # check if we finished the task
                 if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
-                    self.status_pub.publish(String(data="All target tags found! Task is completed."))
                     self.exploration_active = False
-                    self.publish_final_results()
                     self.stop_exploration()  # finished the task
-
-   
+                    self.status_pub.publish(String(data="All target tags found! Task is completed."))
+                    self.publish_final_results()
+                    
+  
     def navigation_callback(self, msg):
         """
         Callback to handle feedback from the navigation node.
@@ -112,22 +111,29 @@ class GoalManagementNode:
         feedback = msg.data
         # if current goal is reached we request a new goal to nodeB_exploration
         if feedback == "Goal Reached" and self.exploration_active:
-            self.status_pub.publish(String(data=f"Goal reached, requesting a new goal."))
+            self.status_pub.publish(String(data=f"GOAL REACHED, requesting a new goal."))
             self.request_new_goal()
         elif feedback == "Goal Failed" and self.exploration_active:         
-            self.status_pub.publish(String(data=f"Failed to reach goal, requesting a new goal."))           
+            self.status_pub.publish(String(data=f"FAILED to reach GOAL, requesting a new goal."))           
             self.request_new_goal()
+        # when we exit control law, we just ask for a new goal
+        elif feedback == "control law off" and self.exploration_active:         
+            self.request_new_goal(rot = False)  # after the control law, no need of random rotation.
         elif feedback == "Time expired" and self.exploration_active:         
-            self.status_pub.publish(String(data=f"Timout reached for current goal, requesting a new goal."))           
+            self.status_pub.publish(String(data=f"TIMEOUT reached for current GOAL, requesting a new goal."))           
             self.request_new_goal()
 
-    def request_new_goal(self):
+    def request_new_goal(self, rot = True):
         """
         Request the exploration node to generate a new goal
         Before requesting the goal, a random rotation is performed
         """
-        self.status_pub.publish(String(data="Performing random rotation."))  
-        self.rotation(random.uniform(0, 2 * math.pi))
+        #prob_of_rotation = 1/2
+        # perform a random rotation with probability 1/3
+        #if random.random() < prob_of_rotation:
+        if rot:
+            self.status_pub.publish(String(data="Performing RANDOM ROTATION."))
+            self.rotation(random.uniform(0, 2*math.pi), 1.2)
         exploration_command = String(data="Continue")   
         self.exploration_command_pub.publish(exploration_command)  # send command to nodeB_exploration
 
@@ -139,11 +145,15 @@ class GoalManagementNode:
         result_msg = PoseArray()
         result_msg.header.frame_id = "map"
         result_msg.header.stamp = rospy.Time.now()
-        for id in self.found_tags.keys():
-            result_msg.append(self.found_tags[id])
+
+        for tag_id in self.found_tags.keys():
+            pose = self.found_tags[tag_id]
+            result_msg.poses.append(pose)  # Append the Pose to the PoseArray
+
         self.status_pub.publish(String(data=f"Publishing final result to node A"))
         rospy.sleep(2)
-        self.final_results_pub.publish(result_msg)  # send results to nodeA
+        self.final_results_pub.publish(result_msg)  # Send results to Node A
+
         
     def stop_exploration(self):
         """
@@ -171,7 +181,7 @@ class GoalManagementNode:
         head_cmd.points.append(point)
 
         # Publish the command
-        self.status_pub.publish(String(data=f"Tilting camera downward to angle {tilt_angle} radians."))
+        self.status_pub.publish(String(data=f"TILTING CAMERA by {tilt_angle} radians."))
         self.head_pub.publish(head_cmd)
         rospy.sleep(2)  # Allow time for the movement to complete
 
@@ -186,7 +196,7 @@ class GoalManagementNode:
         rospy.sleep(1)  # Give some time for all nodes to initialize
 
         self.status_pub.publish(String(data="Performing 360° rotation."))  # update node_A about the new tag found.status_pub
-        self.rotation(2*math.pi)  # start the task by rotating tiago (the camera) of 360°
+        self.rotation(2*math.pi, 0.8)  # start the task by rotating tiago (the camera) of 360°
 
         self.tilt_camera(tilt_angle=-0.6)  # point camera on a suitable angle to see apriltags on the floor
         rospy.loginfo("Sending initial 'Continue' command to start exploration.")
