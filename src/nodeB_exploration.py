@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-
+"""
+Exploration Node
+...
+IMPORTANT NOTE: in the particular map given, it is easy to see that, after tiago rotatesof 360 and pass the corridor all the tags on the 
+right of the beginning of the corridor have always been detected. Hence if would be good, in this case, to force a goal to be in the core room,
+and never entering the corridor. However, in the general case, there is no grant that we explored the room on the other side of the corridor,
+so it would be a terrible mistake to forbid the robot to reach that room again, and potentially making the task always fail.
+so, by implementation choice WE DECIDED to stick to the general case: hence to allow the algoritm to generate a goal leading to the corridor 
+(again) and by consequence activating the controw and goingh trowugh it. Tiago will then explore the small room at the beginning 
+(even if there are never new tags), and in a small time go back through the corridor (control law) and get back to the core room.
+We though that is better to don't base the algorthm on the characteristic of this particular map, when possible.
+"""
 import rospy
 import math
 import random
