@@ -6,6 +6,7 @@ from tiago_iaslab_simulation.srv import Objs
 from geometry_msgs.msg import Pose
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String, Int32MultiArray
 import math
 import random
 
@@ -13,6 +14,9 @@ import random
 class GoalManagementNode:
     def __init__(self):
         rospy.init_node('nodeB_goal_management', anonymous=True)
+
+        # subscriber to get the target tags IDs from node A
+        self.tag_sub = rospy.Subscriber('/target_ids', Int32MultiArray, self.get_targets_callback)
 
         # Subscriber to get the apriltags which are detected by the camera while Tiago is moving. From nodeB_apriltag_detection
         self.tag_sub = rospy.Subscriber('/detected_tags', PoseArray, self.tag_callback)
@@ -35,14 +39,11 @@ class GoalManagementNode:
 
 
         self.head_pub = rospy.Publisher('/head_controller/command', JointTrajectory, queue_size=10) # to move the camera angle
+  
+        self.target_ids = []
 
-        rospy.sleep(1)  # Wait for the publisher to initialize
-
-        self.target_ids = self.get_target_ids()
         self.found_tags = {}  # disctionary to store positions of found tags
-        self.exploration_active = True  # Indicates whether task is ongoing
-
-        self.status_pub.publish(String(data=f"Targed IDs received: {self.target_ids}"))
+        self.exploration_active = False  # Indicates whether task is ongoing
 
 
     def rotation(self, angle, theta):
@@ -70,18 +71,13 @@ class GoalManagementNode:
         # Stop the robot after rotation
         self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
 
-    def get_target_ids(self):
+    def get_targets_callback(self, msg):
         """
-        Requests the target IDs from NodeA from the /apriltag_ids_srv service.
+        get the target IDs from NodeA from the /target_ids topic
         """
-        rospy.wait_for_service('/apriltag_ids_srv')
-        try:
-            apriltag_service = rospy.ServiceProxy('/apriltag_ids_srv', Objs)
-            response = apriltag_service(ready=True)
-            return [int(id) for id in response.ids]   # IMPORTANT CASTING TO INT.
-        except rospy.ServiceException as e:
-            rospy.logerr(f"Failed to call /apriltag_ids_srv: {e}")
-            return []
+        if not self.target_ids:
+            self.target_ids = msg.data  # list of integers (targets ids)
+            self.status_pub.publish(String(data=f"Received IDs from Node A: {self.target_ids}"))
 
     def tag_callback(self, msg):
         """
@@ -91,10 +87,8 @@ class GoalManagementNode:
             tag_id = int(pose.orientation.w)  # NOTE: we are putting the ID in the .orientation.w field (the orientation of the tags is not required)
             if tag_id in self.target_ids and tag_id not in self.found_tags.keys():  # new target apriltag found
                 
-                self.status_pub.publish(String(
-                    data=f"FOUND TARGET AprilTag: {tag_id}. MISSING TARGETS: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
-
                 self.found_tags[tag_id] = pose   # store the pose of the tag in map reference frame
+                self.status_pub.publish(String(data=f"FOUND TARGET AprilTag: {tag_id}. MISSING TARGETS: {set(self.target_ids)-set(self.found_tags.keys())}")) # feedback to node A
 
                 # check if we finished the task
                 if len(self.found_tags) == len(self.target_ids):  # remember that found_tags is a dictionary
@@ -187,9 +181,18 @@ class GoalManagementNode:
 
     def start(self):
         """
-        Starts the goal management routine.
+        Starts the goal management.
         """
         rospy.loginfo("Starting Goal Management Node...")
+
+        # Wait for target IDs before proceeding
+        self.status_pub.publish(String(data=f"Waiting to receive IDs from Node A..."))
+        rate = rospy.Rate(10)  # 10 Hz loop
+        while not self.target_ids:
+            rospy.loginfo_throttle(5, "Still waiting for IDs from Node A...")
+            rate.sleep()
+
+        self.exploration_active = True
 
         # Tilt camera downward at initialization
         self.tilt_camera(tilt_angle=-0.8)  # point camera down for the initial 360 rotation
