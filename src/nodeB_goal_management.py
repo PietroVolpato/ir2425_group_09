@@ -57,17 +57,16 @@ class GoalManagementNode:
         rotate_cmd = Twist()
         rotate_cmd.angular.z = theta  # Angular velocity in radians/second (counterclockwise)
 
-        # Calculate rotation duration for 360 degrees
+        # Calculate rotation duration 
         rotation_duration = angle / abs(rotate_cmd.angular.z) 
 
-        rate = rospy.Rate(10)  # 10 Hz
+        rate = rospy.Rate(10)  
         start_time = rospy.Time.now()
-
         
         while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
             self.cmd_vel_pub.publish(rotate_cmd)
             rate.sleep()
-        #self.status_pub.publish(String(data="Rotation terminated"))
+
         # Stop the robot after rotation
         self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
 
@@ -111,11 +110,15 @@ class GoalManagementNode:
             self.status_pub.publish(String(data=f"FAILED to reach GOAL, requesting a new goal."))           
             self.request_new_goal()
         # when we exit control law, we just ask for a new goal
-        elif feedback == "control law off" and self.exploration_active:         
+        elif feedback == "control law off" and self.exploration_active:
+            self.status_pub.publish(String(data=f"Narrow passage passed, DISABLING CONTROL LAW"))  # feedback to node A         
             self.request_new_goal(rot = False)  # after the control law, no need of random rotation.
         elif feedback == "Time expired" and self.exploration_active:         
             self.status_pub.publish(String(data=f"TIMEOUT reached for current GOAL, requesting a new goal."))           
             self.request_new_goal()
+        elif feedback == "escape point" and self.exploration_active:
+            self.status_pub.publish(String(data=f"TABLE ESCAPE POINT REACHED, requesting a new goal."))
+            self.request_new_goal(rot = False)  # after reached an escape point, a proper orientation was manually set
 
     def request_new_goal(self, rot = True):
         """
@@ -126,7 +129,7 @@ class GoalManagementNode:
         # perform a random rotation with probability 1/3
         #if random.random() < prob_of_rotation:
         if rot:
-            self.status_pub.publish(String(data="Performing RANDOM ROTATION."))
+            self.status_pub.publish(String(data="RANDOM ROTATION."))
             self.rotation(random.uniform(0, 2*math.pi), 1.2)
         exploration_command = String(data="Continue")   
         self.exploration_command_pub.publish(exploration_command)  # send command to nodeB_exploration

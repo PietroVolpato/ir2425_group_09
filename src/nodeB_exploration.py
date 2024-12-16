@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
+
 """
 Exploration Node
+...
 ...
 IMPORTANT NOTE: in the particular map given, it is easy to see that, after tiago rotatesof 360 and pass the corridor all the tags on the 
 right of the beginning of the corridor have always been detected. Hence if would be good, in this case, to force a goal to be in the core room,
 and never entering the corridor. However, in the general case, there is no grant that we explored the room on the other side of the corridor,
 so it would be a terrible mistake to forbid the robot to reach that room again, and potentially making the task always fail.
-so, by implementation choice WE DECIDED to stick to the general case: hence to allow the algoritm to generate a goal leading to the corridor 
+so, by implementation choice WE DECIDED to stick to the general case, hence to allow the algoritm to generate a goal leading to the corridor 
 (again) and by consequence activating the controw and goingh trowugh it. Tiago will then explore the small room at the beginning 
 (even if there are never new tags), and in a small time go back through the corridor (control law) and get back to the core room.
-We though that is better to don't base the algorthm on the characteristic of this particular map, when possible.
+The reason is that we think that is better to don't base the algorthm on the characteristic of this particular map.
 """
+
 import rospy
 import math
 import random
@@ -28,17 +31,19 @@ class ExplorationNode:
         rospy.init_node('Exploration_node')
         rospy.loginfo("Exploration Node initialized.")
 
-        # Sottoscrizione al topic del LiDAR
+        # subscriber to get lidar measurements
         self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_callback)
 
-        # Subscriber per i comandi di velocità
+        # Subscriber to give direct velocity commands
         self.cmd_vel_pub = rospy.Publisher('/mobile_base_controller/cmd_vel', Twist, queue_size=10)
 
-        # Publisher per i goal
+        # Publisher to send goal to navigation node
         self.goal_pub = rospy.Publisher('/exploration_goal', PoseStamped, queue_size=10)
 
+        # subriber to receive commands from goal management node (e.g. generate new goal)
         self.command_sub = rospy.Subscriber('/exploration_command', String, self.command_callback)
 
+        # send feedback to node A
         self.status_pub = rospy.Publisher('/node_b_feedback', String, queue_size=10)
 
         # publisher to say that the navigation passed to control law mode
@@ -54,9 +59,8 @@ class ExplorationNode:
         # Sottoscrizione ai topic della mappa e del costmap
         self.map_sub = rospy.Subscriber('/map', OccupancyGrid, self.map_callback)
 
-        # Variabili per i dati del LiDAR e lo stato del robot
-        self.scan_data = None      
-        self.occupancy_grid = None
+        self.scan_data = None # contains lidar data
+        self.occupancy_grid = None # contains occupancy grid
         self.previous_goals = deque([(0, 0)], maxlen=5)  # queue containing 5 previous goals start considering (0, 0) as a visited goal.
 
         # Control parameters for motion control law navigation
@@ -68,6 +72,7 @@ class ExplorationNode:
         self.angular_speed = 0.2  # Base turning speed (rad/s) for control law. This number will be normalized based on the detected distances
         self.chosen_side = None  #  variable used to handle the case tiago is in front of an obstacle. Once is fixed, we stick to that side to avoid obstacle.
         self.control_law_active = False # keep track is the control mode is active
+        self.c_l_threshold = 0.5 # hysterisis thresholding to exit control law
 
         self.exploration_active = False # exploration starts with first continue coommand, and ends with stop command
         self.current_goal = None
@@ -83,7 +88,7 @@ class ExplorationNode:
         """
         feedback = str(msg.data).lower()
         s = ""
-        if feedback == "goal reached":
+        if feedback == "goal reached" or feedback == "time expired":
             self.previous_goals.appendleft(self.current_goal) # append tuple to previous goals
             for elem in self.previous_goals:
                 x = "{:.3f}".format(elem[0])
@@ -111,29 +116,6 @@ class ExplorationNode:
     def map_callback(self, msg):
         self.occupancy_grid = msg
         rospy.loginfo("Occupancy grid data received.")
-    
-    def table_assumption_check(self, r, angle, increment = 0.2):
-        """
-        We assume the table to be static, and this function checks that the path to a candidate goal does
-        not intersect with the region covered  by the table (lidar can't see it)
-        r : distance from tiago and the candidate goal
-        angle: angle (polar coordinates) extracted by lidar data
-        increment: interval of sampling, to check if a point in the line is intersecting the table region
-
-        return: true if by sampling the range we don't intersect the table region, false otherwise
-        """
-        # coordinates of the table hard coded (actually a square a little bit larger)
-        x1 = 6 #6.3 # x1 < x2 must be satisfied
-        x2 = 8.4 #8.1
-        y1 = -3.6 #-3.3 # y1 < y2 must be satisfied
-        y2 = -1.5 #-1.8
-        for i in np.arange(increment, r, increment):
-            x = r * np.cos(angle)
-            y = r * np.sin(angle)
-            x_map, y_map = self.transform_to_map(x, y)
-            if x1 <= x_map <= x2 and y1 <= y_map <= y2:  # sample point is inside the table
-                return False
-        return True
     
     def neighborhood_check(self, r, angle, neighborhood_size = 0.4, increment = 0.22):
         """
@@ -185,7 +167,7 @@ class ExplorationNode:
 
         return: (x_map, y_map) respectively x and y of the goal w.r.t. map reference frame.
         """
-        min_free_space = 2  # Minimum required distance from obstacles for picking a sample
+        min_free_space = 2  # Minimum required distance from obstacles for picking a sample (goal must make tiago move enough)
         safe_distance = 1  # send tiago far enough from osbacle
         max_attempts = 10  # Maximum number of attempts to try find a valid sample
 
@@ -203,7 +185,7 @@ class ExplorationNode:
             angle = angle_min + position * angle_increment
 
             # check there is enough room or the line intersect table region
-            if distance < min_free_space or not self.table_assumption_check(corrected_distance, angle, increment=0.3):
+            if distance < min_free_space:
                 attempts += 1
                 continue
 
@@ -431,7 +413,6 @@ class ExplorationNode:
         if self.control_law_active or (left_distance < self.side_clearance and right_distance < self.side_clearance and front_distance > self.front_clearence):
             
             if not self.control_law_active: # give information only when starting the control law
-                self.status_pub.publish(String(data=f"Narrow passage detected, ACTIVATING CONTROL LAW"))  # feedback to node A
                 rospy.loginfo("Narrow passage detected, activating control law.")
                 self.control_law_pub.publish(String(data="control law on"))  # inform the navigation, will cancel current goal.
                 self.control_law_active = True
@@ -440,6 +421,7 @@ class ExplorationNode:
 
             # OBSTACLE MODE. too close to an obstacle in front
             if front_distance < self.min_distance_obstacle_threshold:
+                print("OBSTACLE MODE")
                 if not self.chosen_side:  # chose one side to take to avoid the obstacle
                     self.chosen_side = "right" if right_distance > left_distance else "left"
                 # positive if right > left, negative otherwise. rotate looking a direction with more room to move
@@ -449,13 +431,15 @@ class ExplorationNode:
 
             # WALL MODE. got close to a wall on the sides
             elif  left_distance < self.min_distance_wall_threshold or right_distance < self.min_distance_wall_threshold:
+                print("WALL MODE")
                 # positive if right > left, negative otherwise. rotate looking a direction with more room to move
                 twist.angular.z = sign * self.angular_speed
                 # signlificantly reduce speed to avoid collision.
                 twist.linear.x = self.linear_speed * min(left_distance, right_distance) / self.side_clearance
                 self.chosen_side = None  # there is no obstacle ahead, reset chosen_side
             # CLEAR MODE
-            else:               
+            else:    
+                print("CLEAR MODE")           
                 # Move forward
                 twist.linear.x = self.linear_speed
                 # slightly rotate to try keep the center of the corridor
@@ -465,8 +449,7 @@ class ExplorationNode:
 
             self.cmd_vel_pub.publish(twist)    # publish the velocity command
         # hysterisis thresholding to exit the control law
-        if self.control_law_active and (left_distance >= (self.side_clearance + 0.3) or right_distance >= (self.side_clearance + 0.3)):
-            self.status_pub.publish(String(data=f"Narrow passage passed, DISABLING CONTROL LAW"))  # feedback to node A
+        if self.control_law_active and (left_distance >= (self.side_clearance + self.c_l_threshold) or right_distance >= (self.side_clearance + self.c_l_threshold)):
             self.control_law_pub.publish(String(data="control law off"))
             self.control_law_active = False
     
