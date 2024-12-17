@@ -6,23 +6,23 @@ This node is the coordinator of the execution of the task.
 It receives the target IDs from node A, and save them in his internal state. When some apriltag detections are published by the APRILTAG DETECTIONS NODE,
 it checks if the corresponding apriltag is a TARGET tag that was not already found, publishing also this information to NODE A, and in such case the task is
 completed.
-This node also receives the outcome of a goal from the NAVIGATION NODE, and a new goal is requested to the EXPLORATION NODE senting the command "continue".
+This node also receives the outcome of a goal from the NAVIGATION NODE, and a new goal is requested to the EXPLORATION NODE sending the command "continue".
 When requesting a new goal, it is performed a rotation of a random angle between 0 and 360 degrees. This operation is useful for two reasons:
     1) when Tiago rotates, the camera is potentially able to see new apriltags, speeding up the completion of the task.
-    2) usually when Tiago reaches a goal is facing towards a wall, hence the lidar sensor is not able to see a very meaningful region of the enviroment, and
-       the 'interesting' part of the enviroment is behind his back.
+    2) usually when Tiago reaches a goal is facing towards a wall, hence the Lidar sensor is not able to see a very meaningful region of the environment, and
+       the 'interesting' part of the environment is behind his back.
        Do a random rotation is useful because there is a very high chance that after the rotation the lidar is pointing towards a wider area of the
-       enviroment, and since goals are based on lidar data, this results in a good chance to generate a goal that makes Tiago explore the enviroment in
+       environment, and since goals are based on Lidar data, this results in a good chance to generate a goal that makes Tiago explore the map in
        a better way.
 The only exceptions for which the rotation is not done are when we just exited the control law mode (passed a corridor), and when an escape point is reached.
 The reason is that in both cases Tiago will be already be looking in a good direction, hence would be counterproductive do a random rotation.
 
-To have better better performances on this task, at the beginning we tilt the tiago camera downward (-0.6 radianrs). We did that by creating a 
+To have better performances on this task, at the beginning we tilt the Tiago camera downward (-0.6 radians). We did that by creating a 
 proper message JointTrajectory, and publish it to the /head_controller/command topic. Since apriltags are on the floor, in this way the camera is 
 able to see them easily.
-Before starting the exploration, at the beginning, we also make tiago rotate on himself by 360 degrees, in such way we are able to get all the apriltags 
+Before starting the exploration, at the beginning, we also make Tiago rotate on himself by 360 degrees, in such way we are able to get all the apriltags 
 in the initial room right away. Note that this is NOT A LOSS OF GENERALITY, but just a trick to speed up the execution of the task, since our
-exploration algorithm is able to make tiago go back to the corridor and reach the initial room again.
+exploration algorithm is able to make Tiago go back to the corridor and reach the initial room again.
 """
 import rospy
 from geometry_msgs.msg import PoseArray
@@ -72,7 +72,7 @@ class GoalManagementNode:
 
     def rotation(self, angle, theta):
         """
-        This function make tiago rotate on himself.
+        This function makes tiago rotate on himself.
         Angle: total angle of desired rotation
         Theta: angular velocity in rad/s. Positive for counterclockwise, negative for clockwise
         """
@@ -147,11 +147,8 @@ class GoalManagementNode:
     def request_new_goal(self, rot = True):
         """
         Request the exploration node to generate a new goal
-        Before requesting the goal, a random rotation is performed
+        Before requesting the goal, a random rotation is performed if rot = True
         """
-        #prob_of_rotation = 1/2
-        # perform a random rotation with probability 1/3
-        #if random.random() < prob_of_rotation:
         if rot:
             self.status_pub.publish(String(data="RANDOM ROTATION."))
             self.rotation(random.uniform(0, 2*math.pi), 1.2)
@@ -187,7 +184,7 @@ class GoalManagementNode:
     def tilt_camera(self, tilt_angle=-0.5):
         """
         Tilts the camera downward by adjusting the head_2_joint.
-        :param tilt_angle: Angle to tilt the camera (in radians, negative for downward tilt).
+        param tilt_angle: Angle to tilt the camera (in radians, negative for downward tilt).
         """
         # Create a JointTrajectory message
         head_cmd = JointTrajectory()

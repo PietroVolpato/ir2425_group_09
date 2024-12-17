@@ -4,7 +4,7 @@ NODE A
 This node receives the ids of the five target apriltags from the /apriltag_ids_srv service.
 The target ids are published to the goal management node. Constant feedback is provided from the other
 nodes, and the information is printed to terminal. All the prints that the user is supposed to see are provided by this node.
-Once the task is completed, the positions of the target tags are retrived by subscribing to the topic final_cube_positions,
+Once the task is completed, the positions of the target tags are retrieved by subscribing to the topic final_cube_positions,
 and printed to terminal.
 """
 import rospy

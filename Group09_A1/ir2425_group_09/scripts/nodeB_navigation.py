@@ -4,15 +4,15 @@ NAVIGATION NODE
 
 This node is responsible to properly format the goal received by the exploration node subscribing to the /exploration_goal topic, and send the goal to the
 ROS navigation stack using a actionlib.SimpleActionClient('move_base', MoveBaseAction).
-Other than the standard feedback provided by actionlib.GoalStatus, it is implemented also an alternative logic to monitor the goal, and evenutally consider
+Other than the standard feedback provided by actionlib.GoalStatus, it is implemented also an alternative logic to monitor the goal, and eventually consider
 it as reached, or abort it because the timout was reached.
-The logic is implemented in the function monito_goal() (see below for details), and it is very important since, considering this task of finding objects in an
-enviroment, significantly improve the capability of the robot to explore the enviroment.
+The logic is implemented in the function monitor_goal() (see below for details), and it is very important since, considering this task of finding objects in an
+environment, significantly improve the capability of the robot to explore it.
 The fact that a goal is consider 'terminated' can happen for several reasons:
     1) the goal is reached by Actionlib (actionlib.GoalStatus.SUCCEEDED)
     2) the goal is reached by monitor_goal(), because tiago is very close to it.
     3) the goal is aborted by Actionlib (actionlib.GoalStatus.ABORTED OR actionlib.GoalStatus.REJECTED)
-    4) the goal is aborted by monitor_goal(), because time has exppired
+    4) the goal is aborted by monitor_goal(), because time has expired
     5) the goal is aborted because the exploration node turned CONTROL LAW MODE ON
     6) the goal is aborted because leading to a collision with the table (see static table assumption)
 
@@ -25,13 +25,13 @@ of the table must be given as parameters. Such measured points (map frame) are, 
     B = (7.8, -1.6)
     C = (7.8, -3)
     D = (6.6, -3)
-We can then compute four coordinates: x1, x2, y1, y2, inferred from the 4 corners plus a safe distance (self.safe_distance_table), since tiago occupies a non
+We can then compute four coordinates: x1, x2, y1, y2, inferred from the 4 corners plus a safe distance (self.safe_distance_table), since Tiago occupies a non
 negligible area in the map. Then a point (x,y) is inside the "table area" iff x1 <= x <= x2 and y1 <= y <= y2.
 If tiago is detected to be just entered this area, we cancel the current goal (hence stop), and set as goal a proper "escape point". There are 2 escape points:
 one on the region bottom left of the table (escape_point_bottom), the other on the region top left of the table (escape_point_top). Such points are computed as
 function of x1,x2,y1,y2 and were determined empirically. The proper escape point is given as goal based both on the direction from which Tiago was approaching the
 table, and on the position of Tiago w.r.t. the table. There is a good chance that from one escape point Tiago reaches the other (cross the table without collision), 
-resulting in an efficient exploration of the room. This strategy ensure that Tiago can't collide with the table, despite being an "invisible" obstacle for the lidar sensor.
+resulting in an efficient exploration of the room. This strategy ensure that Tiago can't collide with the table, despite being an "invisible" obstacle for the Lidar sensor.
 Despite being a loss of generality, we decided to pass the coordinates of the table as parameters of the node, in such way that is possible to use this strategy for
 any rectangular-shape obstacle.
 """
@@ -172,14 +172,14 @@ class NavigationNode:
         """
         This function implements the navigation logic, build specifically for this task (general case more as possible).
         The functionalities implemented are 3:
-        1) RELAXATION OF "GOAL REACHED". As we know, the ROS navigation stack impose that, to consider a goal reached, tiago needs
+        1) RELAXATION OF "GOAL REACHED". As we know, the ROS navigation stack impose that, to consider a goal reached, Tiago needs
             to reach the exact position with the exact orientation. Such strict requirement is not needed for this task, since we just
-            need to generate goals that make tiago explore the enviroment. To consider a goal reached this function needs only that tiago
+            need to generate goals that make Tiago explore the environment. To consider a goal reached this function needs only that tiago
             is close enough to the goal (see self.xy_tolerance), and there are no orientation requirements. 
             This is useful to reduce the probability that a goal fails and avoid losing time to reach the exact position/orientation.
         2) TIMOUT HANDLING. Since might happen that Tiago tries to reach a goal, and some obstacles blocks his way to the end of the goal,
-            there is a time limit (see self.goal_timout) that if expires, the goal is canceled and a new goal is requested. This
-            functionality is very important to avoid that tiago gets stuck for a very long time.
+            there is a time limit (see self.goal_timout) that if expires, the goal is cancelled and a new goal is requested. This
+            functionality is very important to avoid that Tiago gets stuck for a very long time.
         3) STATIC TABLE ASSUMPTION IMPLEMENTATION. See the documentation at the beginning.
          
         """

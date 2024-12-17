@@ -2,26 +2,27 @@
 
 """
 Exploration Node
-The main function of this node is to generate goals, which are produced by a randomized algorithm, designed in order to make tiago explore the enviroment
+The main function of this node is to generate goals, which are produced by a randomized algorithm, designed in order to make Tiago explore the environment
 to find the apriltags. (see documentation below for details).
-When the goal management node send the command 'continue', a goal is generated from the lidar sensor data and the coordinates x,y are published
+When the goal management node send the command 'continue', a goal is generated from the Lidar sensor data and the coordinates x,y are published
 through the /exploration_goal topic, using a message type PoseStamped. The goal handling is up to the NAVIGATION NODE.
 A queue containing the previous five goals is stored in the internal state of the node, and will play an important role in the generation of the goal.
 This node also implements a control law, which purpose is to activate when Tiago is in a narrow corridor and makes Tiago cross it. The control law sends
 direct velocity commands though the /mobile_base_controller/cmd_vel topic, and properties linear velocities/twists are given based on the distance between Tiago
 and the side walls of the corridor. (See documentation below for details).
 When Tiago is recognized to be in a 'narrow corridor' the CONTROL MODE turns ON, and using the topic /control_law_command we communicate to the
-navigation node to cancel the current goal and suspend until the control law is OFF, in order that the control law is the only responsable of making
+navigation node to cancel the current goal and suspend until the control law is OFF, in order that the control law is the only responsible of making
 Tiago move and has full control.
 
-IMPORTANT NOTE: in the particular map given, it is easy to see that, after tiago rotates of 360 and pass the corridor all the tags on the 
+IMPORTANT NOTE: in the particular map given, it is easy to see that, after Tiago rotates of 360 and pass the corridor all the tags on the 
 right of the beginning of the corridor have always been detected. Hence if would be good, in this case, to force a goal to be in the core room,
-and never entering the corridor. However, in the general case, there is no grant that we complitely explored the room on the other side of the corridor,
+and never entering the corridor. However, in the general case, there is no grant that we completely explored the room on the other side of the corridor,
 so it would be a terrible mistake to forbid the robot to reach that room again, potentially making the task always fail.
 so, by implementation choice WE DECIDED to stick to the general case, hence to allow the algorithm to generate a goal leading to the corridor 
-(again) and by consequence activating the contro law and going through it. Tiago will then explore the small room at the beginning 
+(again) and by consequence activating the control law and going through it. Tiago will then explore the small room at the beginning 
 (even if there are never new tags), and in a small time go back through the corridor (control law) and get back to the core room.
-The reason is that we think that is better to don't base the algorthm on the characteristics of this particular map.
+The reason is that we think that is better to don't base the algorithm on the characteristics of this particular map.
+
 """
 
 import rospy
@@ -111,9 +112,9 @@ class ExplorationNode:
 
     def command_callback(self, msg):
         """
-        Syncronization with the goal management node:
+        Synchronization with the goal management node:
         if a command "continue" is received, a goal is generated and sent to the navigation node
-        if the command "stop" is received, then it means task is completed an this node is not producing goals anymore.
+        if the command "stop" is received, then it means task is completed and this node is not producing goals anymore.
         """
         command = str(msg.data).lower()
         rospy.loginfo(f"Received command: {command}")
@@ -132,17 +133,22 @@ class ExplorationNode:
      
     def neighborhood_check(self, r, angle, neighborhood_size = 0.3, increment = 0.3):
         """
-        r : distance from tiago and the candidate goal
-        angle: angle (polar coordinates) extracted by lidar data
+        Synchronization with the goal management node:
+        if a command "continue" is received, a goal is generated and sent to the navigation node
+        if the command "stop" is received, then it means task is completed and this node is not producing goals anymore.
+
+        r : distance from Tiago and the candidate goal
+        angle: angle (polar coordinates) extracted by Lidar data
         neighborhood_size : size of the square neighborhood to check. i.e. a square 2*neighborhood_size x 2*neighborhood_size centered on the current sample
         increment : sampling interval on the straight line from tiago to goal
 
         The meaning of this function is to check if there are obstructions in the very last part of Tiago trajectory. The ROS stack is set to have a 
-        relatively large safe distance from obstcles, hence the presence of those close to the goal can lead to a failure.
+        relatively large safe distance from obstacles, hence the presence of those close to the goal can lead to a failure.
         To a sample to be a candidate goal (hence pass this check) we require that the points very close to the goal are free, ensuring that there is
         enough room for Tiago to reach the goal.
 
         return : True if in the neighborhood were sampled only free points, False otherwise
+
         """
 
         check_distance = 0.5 # checks the last part of the trajectory [meters]
@@ -167,17 +173,17 @@ class ExplorationNode:
 
     def random_sample(self, sector, angle_min, angle_increment):
         """
-        sector: a portion of lidar data, covering a certain circular sector. Lidar data are formatted in an array of tupes, respectivevly
+        sector: a portion of Lidar data, covering a certain circular sector. Lidar data are formatted in an array of tuples, respectively
                 the measured range and the relative original index
-        angle_min: the angle min of the lidar
-        angle_increment: the angle increment of the lidar
+        angle_min: the angle min of the Lidar
+        angle_increment: the angle increment of the Lidar
 
         This function picks an element of the sector at random, and check if satisfy requirements to be a valid goal: presence of safe distance,
         goal trajectory must not intersect with table region, a small neighborhood of the goal must be "free space".
-        If the requirements for a sample are satisfied, it is redurned as a valid possible goal, otherwise we keep trying to find a valid sample
+        If the requirements for a sample are satisfied, it is returned as a valid possible goal, otherwise we keep trying to find a valid sample
         in the sector. After max_attempts, we give up on returning a sample of the sector.
 
-        return: (x_map, y_map) respectively x and y of the goal w.r.t. map reference frame.
+        return: (x_map, y_map) respectively x and y of the candidate goal w.r.t. map reference frame.
         """
         min_movement = 2  # Minimum required distance from obstacles for picking a sample (goal must make tiago move enough)
         safe_distance = 1  # send tiago far enough from osbacle
@@ -219,8 +225,8 @@ class ExplorationNode:
 
     def explore(self):
         """
-        Processes lidar data to find the next exploration goal.
-        The whole array of lidar data is splitted in number_of_sectors_sampled circular sectors.
+        Processes Lidar data to find the next exploration goal.
+        The whole array of Lidar data is split in number_of_sectors_sampled circular sectors.
         It is tried to extract a valid sample (candidate goal) per sector. See random_sample()
         Once we collected all candidate goals, we compute the average distance between each candidate goal and all
         previous goals (in the queue self.previous goals).
@@ -382,8 +388,8 @@ class ExplorationNode:
     def control_law(self):
         """
         This is the control law logic, which is applied if a narrow corridor is detected.
-        From the array of lidar measures, we extract right and left samples, which are all the measurements starting from the two
-        extrema of the lidar covering angle_sides radians. We also extract the front samples, which are the central measurements covering 
+        From the array of Lidar measures, we extract right and left samples, which are all the measurements starting from the two
+        extrema of the Lidar covering angle_sides radians. We also extract the front samples, which are the central measurements covering 
         angle_front radians.
         Then if there is few distance on the sides (see side_clearance) and enough room in front (see front_clearence), the control law becomes active.
         There are three modes, listed in order of priority (e.g. mode 3 can't be active if mode 1 or mode 2 conditions are true):
@@ -391,10 +397,10 @@ class ExplorationNode:
         2) WALL MODE: the distance from the side is low. To avoid collision linear speed is reduced, and a proper rotation is applied to get
             further from the wall
         3) CLEAR MODE: there is enough room both in front and on the sides. The linear speed is kept relatively high, and a small rotation is applied in
-            order to try to keep the center of the corridor.
+            order to try to keep the centre of the corridor.
         
         To exit the control law we require that there is a good amount of room on the sides (no more narrow corridor).
-        It is apllied hysterisis thresholding (stricter requirement to exit than to enter control law), in order to avoid consecutive ON/OFF of the control
+        It is applied hysteresis thresholding (stricter requirement to exit than to enter control law), in order to avoid consecutive ON/OFF of the control
         law.   
         """
         if self.scan_data is None or not self.exploration_active:  # not ready to start exploration, or task finished, or problem with lidar data
