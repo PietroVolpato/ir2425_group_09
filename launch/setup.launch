@@ -1,0 +1,10 @@
+<launch>
+    <!-- Launch the navigation stack -->
+    <include file="$(find tiago_iaslab_simulation)/launch/navigation.launch" />
+    
+    <!-- Launch the AprilTag detection -->
+    <include file="$(find tiago_iaslab_simulation)/launch/apriltag2.launch" />
+    
+    <!-- Run the straight line node -->
+    <node pkg="tiago_iaslab_simulation" type="get_straightline_node" name="get_straightline_node" output="screen" />
+</launch>

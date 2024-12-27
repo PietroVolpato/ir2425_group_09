@@ -1,0 +1,3 @@
+<launch>
+    <node pkg="ir2425_group_09" type="nodeA.py" name="nodeA" output="screen" />
+</launch>
