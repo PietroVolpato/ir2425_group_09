@@ -6,13 +6,17 @@ from geometry_msgs.msg import PoseArray, PoseStamped
 import tf2_ros 
 from tf2_geometry_msgs import do_transform_pose
 from std_msgs.msg import String
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
 
 class NodeB:
     def __init__(self):
-        rospy.init_node('node_b')
+        rospy.init_node('nodeB')
 
         # Define the publisher to communicate with node C
         self.object_pub = rospy.Publisher('/detected_objects', String, queue_size=10)
+
+        self.head_pub = rospy.Publisher('/head_controller/command', JointTrajectory, queue_size=10) # to move the camera angle
 
         # TF2 setup
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
@@ -30,6 +34,7 @@ class NodeB:
             # Lookup the transformation from the camera frame to the map frame
             transform = self.tf_buffer.lookup_transform("map", "xtion_rgb_optical_frame", rospy.Time(0))
 
+            print(f"Number of detections: {len(msg.detections)}")
             for detection in msg.detections:
                 tag_id = detection.id[0]
 
@@ -47,17 +52,16 @@ class NodeB:
                     transformed_pose.pose.orientation.w = float(tag_id)
                     # Add the transformed pose to the PoseArray
                     detected_poses.poses.append(transformed_pose.pose)
-                    self.status_pub.publish(String(data=f"DETCTED AprilTag: {tag_id}."))  # feedback to node A
                 
                     # Classify the object
-                    object_shape, dimensions = self.classify_object(tag_id)
+                    info = self.classify_object(tag_id)
 
                     # Publish the object information
-                    object_info = self.object_info(tag_id, pose_robot, object_shape, dimensions)
-                    self.object_pub.publish(object_info)
+                    #object_info = self.object_info(tag_id, pose_robot, object_shape, dimensions)
+                    self.object_pub.publish(info)
 
                     # Print the detected object information to the terminal
-                    rospy.loginfo(f"Detected Object: {object_info}")
+                    rospy.loginfo(f"Detected Object: {info}")
 
                 except Exception as e:
                     rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
@@ -69,11 +73,11 @@ class NodeB:
 
     def classify_object(self, tag_id):
         if tag_id in [1, 2, 3]:
-            return "hexagonal", {"h": 0.2, "r": 0.05}
+            return f"{tag_id}, hexagonal"
         elif tag_id in [4, 5, 6]:
-            return "cube", {"l": 0.05}
+            return f"{tag_id}, cube"
         elif tag_id in [7, 8, 9]:
-            return "triangular_prism", {"b": 0.05, "h": 0.035, "L": 0.07}
+            return f"{tag_id}, triangular_prism"
         else:
             return "unknown", {}
 
@@ -84,6 +88,30 @@ class NodeB:
         return (f"Tag ID: {tag_id}, Shape: {shape}, Dimensions: {dimensions}, "
                 f"Position: ({position.x}, {position.y}, {position.z}), "
                 f"Orientation: ({orientation.x}, {orientation.y}, {orientation.z}, {orientation.w})")
+
+    def tilt_camera(self, tilt_angle = -0.8):
+        """
+        Tilts the camera downward by adjusting the head_2_joint.
+        :param tilt_angle: Angle to tilt the camera (in radians, negative for downward tilt).
+        """
+        # Create a JointTrajectory message
+        head_cmd = JointTrajectory()
+        head_cmd.joint_names = ['head_1_joint', 'head_2_joint']
+
+        # Create a JointTrajectoryPoint for the desired position
+        point = JointTrajectoryPoint()
+        point.positions = [0.0, tilt_angle]  # Keep head_1_joint neutral, tilt head_2_joint
+        point.time_from_start = rospy.Duration(1.0)  # Move in 1 second
+
+        # Add the point to the trajectory
+        head_cmd.points.append(point)
+
+        # Publish the command
+        self.head_pub.publish(head_cmd)
+    
+    def run(self):
+        self.tilt_camera()
+        rospy.spin()
 
 if __name__ == '__main__':
     try:
