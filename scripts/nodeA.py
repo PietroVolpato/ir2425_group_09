@@ -6,16 +6,22 @@ from std_msgs.msg import String
 import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 import math
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 class NodeA:
     def __init__(self):
         rospy.init_node("nodeA")
+
+        self.head_pub = rospy.Publisher('/head_controller/command', JointTrajectory, queue_size=10) # to move the camera angle
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
         rospy.loginfo("Waiting for move_base action server...")
         self.nav_client.wait_for_server()
         rospy.loginfo("Connected to move_base action server.")
+
+
+        
 
         # Wait for the service to become available
         rospy.loginfo("Waiting for /straight_line_srv service...")
@@ -29,8 +35,12 @@ class NodeA:
         # Define static docking points
         self.docking_points = {
             "corridor exit": (8.7, 0),
-            "objects table" : (8.7, -3),
-            "picking table" : (8.7, -2)
+            "placing table" : (8.7, -2),
+            "picking table front" : (9, -3),
+            "picking table vert1" : (9, -4.1),
+            "picking table side" : (8, -4.1),
+            "picking table vert2" : (6.8, -4.1),
+            "picking table behind" : (6.8, -3)            
         }
 
     def get_coefficients(self):
@@ -53,7 +63,7 @@ class NodeA:
 
         goal = MoveBaseGoal()
         target = target.lower().strip()
-        if target not in ["corridor exit", "objects table", "picking table"]:
+        if target not in ["corridor exit", "placing table", "picking table front","picking table side", "picking table behind", "picking table vert1", "picking table vert2"]:
             rospy.logerr(f"Unkown target given, goal not defined: {target}")
             return
         
@@ -62,12 +72,23 @@ class NodeA:
         goal.target_pose.header.stamp = rospy.Time.now()
         goal.target_pose.pose.position.x = p[0]
         goal.target_pose.pose.position.y = p[1]
-        if target == "corridor exit":
+        if target == "corridor exit" or target == "picking table vert1":
             goal.target_pose.pose.orientation.z = 0.7  # look table's direction
             goal.target_pose.pose.orientation.w = -0.7
-        else:
+        elif target == "picking table front":
+            goal.target_pose.pose.orientation.w =0.087  # look at the table
+            goal.target_pose.pose.orientation.z = 0.99 
+        elif target == "placing table" or target == "picking table vert2":
             goal.target_pose.pose.orientation.w = 0  # look at the table
             goal.target_pose.pose.orientation.z = 1.0  
+        elif target == "picking table side":
+            goal.target_pose.pose.orientation.w = 0.707  # look at the table
+            goal.target_pose.pose.orientation.z = 0.7  
+        elif target == "picking table behind":
+            goal.target_pose.pose.orientation.w = 0.99  # look at the table
+            goal.target_pose.pose.orientation.z = 0.087 
+        
+
 
         #rospy.loginfo(f"Sending goal: {target}")
         self.nav_client.send_goal(goal)
@@ -82,6 +103,8 @@ class NodeA:
             rospy.logwarn("Navigation FAILED with status: %s", result)
             self.send_goal(target)
 
+        rospy.sleep(1.5)
+
     def set_target_points(self, m, q):
         """
         given the m and q (slope and intercept), computes points on the line equation at a proper distance between each other.
@@ -93,16 +116,39 @@ class NodeA:
             x = r * math.cos(a)
             y = r * math.sin(a) + q
             self.target_points.append((x,y))  # save targets in internal state
-    
+
+    def tilt_camera(self, tilt_angle = -0.75):
+        """
+        Tilts the camera downward by adjusting the head_2_joint.
+        :param tilt_angle: Angle to tilt the camera (in radians, negative for downward tilt).
+        """
+        # Create a JointTrajectory message
+        head_cmd = JointTrajectory()
+        head_cmd.joint_names = ['head_1_joint', 'head_2_joint']
+
+        # Create a JointTrajectoryPoint for the desired position
+        point = JointTrajectoryPoint()
+        point.positions = [0.0, tilt_angle]  # Keep head_1_joint neutral, tilt head_2_joint
+        point.time_from_start = rospy.Duration(1.0)  # Move in 1 second
+
+        # Add the point to the trajectory
+        head_cmd.points.append(point)
+
+        # Publish the command
+        self.head_pub.publish(head_cmd)
+
     def run(self):
+        self.tilt_camera()
         m,q = node.get_coefficients()
         self.set_target_points(m,q)
         print(self.target_points)
-        self.send_goal("corridor exit")
-        self.send_goal("picking table")
-        self.send_goal("objects table")
-        self.send_goal("picking table")
-        self.send_goal("objects table")
+        self.send_goal("corridor exit")        
+        self.send_goal("placing table")
+        self.send_goal("picking table front")
+        self.send_goal("picking table vert1")
+        self.send_goal("picking table side")
+        self.send_goal("picking table vert2")
+        self.send_goal("picking table behind")
         rospy.spin()
 
 if __name__ == "__main__":
