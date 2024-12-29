@@ -19,7 +19,7 @@ class NodeA:
         # publisher to notify nodeB that we reached a docking point, thus we are ready to make detections
         self.ready_detection_pub = rospy.Publisher('/ready_detection', String, queue_size=10)
 
-        rospy.Subscriber('/detected_objects', Detections, self.process_detections)   # HERE JUST MOMENTARILY, should be in C
+        # rospy.Subscriber('/detected_objects', Detections, self.process_detections)   # HERE JUST MOMENTARILY, should be in C
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -149,19 +149,19 @@ class NodeA:
         # Publish the command
         self.head_pub.publish(head_cmd)
 
-    def process_detections(self, msg):  # callback to process detections. TEMPORARILY HERE, for testing. SHOULD BE IN NODE C
-        poses = msg.poses
-        ids = msg.ids
-        target = msg.target
-        print(f"target is : {target}")
-        print("received detections:")
-        for i in range(len(poses)):
-            id = ids[i]
-            pose = poses[i]
-            x = pose.position.x
-            y = pose.position.y
-            z = pose.position.z
-            print(f"id: {id}, x = {x:.3f}, y = {y:.3f}, z = {z:.3f}")
+    # def process_detections(self, msg):  # callback to process detections. TEMPORARILY HERE, for testing. SHOULD BE IN NODE C
+    #     poses = msg.poses
+    #     ids = msg.ids
+    #     target = msg.target
+    #     print(f"target is : {target}")
+    #     print("received detections:")
+    #     for i in range(len(poses)):
+    #         id = ids[i]
+    #         pose = poses[i]
+    #         x = pose.position.x
+    #         y = pose.position.y
+    #         z = pose.position.z
+    #         print(f"id: {id}, x = {x:.3f}, y = {y:.3f}, z = {z:.3f}")
 
     def find_path_to_point(self, target_point):
         """
