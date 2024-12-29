@@ -1,3 +1,4 @@
 <launch>
     <node pkg="ir2425_group_09" type="nodeA.py" name="nodeA" output="screen" />
+    <node pkg="ir2425_group_09" type="nodeB.py" name="nodeB" output="screen" />
 </launch>
