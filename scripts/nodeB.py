@@ -93,7 +93,7 @@ class NodeB:
         elif tag_id in [7, 8, 9]:
             return f"{tag_id}, type = triangular prism"
         else:
-            return "unknown"
+            return f"{tag_id}, type = table"
 
 if __name__ == '__main__':
     try:
