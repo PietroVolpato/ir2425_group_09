@@ -39,8 +39,8 @@ class NodeA:
         # Define static docking points + transition points
         self.docking_points = {
             "corridor exit": (8.7, 0),              # transition point
-            "placing table" : (8.7, -2),  
-            "picking table front" : (8.8, -3),      # DOCKING POINT
+            # "placing table" : (8.8, -2),            
+            "picking table front" : (8.7, -3),      # DOCKING POINT
             "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
             "picking table side" : (8, -4.1),         # DOCKING point
             "picking table vert2" : (6.8, -4.1),    # transition point top left vertex
@@ -90,7 +90,7 @@ class NodeA:
         elif target == "picking table front":  
             goal.target_pose.pose.orientation.w = 0.087  
             goal.target_pose.pose.orientation.z = 0.99 
-        elif target == "placing table" or target == "picking table vert2":
+        elif target == "picking table vert2":   # placing table removed
             goal.target_pose.pose.orientation.w = 0  
             goal.target_pose.pose.orientation.z = 1.0  
         elif target == "picking table side":
@@ -107,7 +107,7 @@ class NodeA:
         result = self.nav_client.get_state()
         
         if result == actionlib.GoalStatus.SUCCEEDED:   
-            if target in ["picking table front", "picking table side", "picking table behind"]:  # print when reaching docking points
+            if target in self.alive_docking_points:  # print when reaching docking points
                 rospy.sleep(0.2)  # wait a little bit to stabilize detections
                 rospy.loginfo(f"Reached DOCKING POINT {target}")
                 self.ready_detection_pub.publish(String(data="ready"))  # tell nodeB to provide the detections
@@ -220,12 +220,12 @@ class NodeA:
         self.set_target_points(m,q)
         #print(self.target_points)
         self.send_goal("corridor exit")        
-        self.send_goal("placing table")
+        # self.send_goal("placing table")
         self.send_goal("picking table front")
-        self.send_goal("picking table vert1")
-        self.send_goal("picking table side")
-        self.send_goal("picking table vert2")
-        self.send_goal("picking table behind")
+        # self.send_goal("picking table vert1")
+        # self.send_goal("picking table side")
+        # self.send_goal("picking table vert2")
+        # self.send_goal("picking table behind")
         rospy.spin()
 
 if __name__ == "__main__":

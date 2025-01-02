@@ -48,6 +48,7 @@ class NodeB:
 
             for detection in self.current_detections:
                 tag_id = detection.id[0]
+                type = self.classify_object(tag_id)
 
                 try:
                     # Create a PoseStamped object from the detected pose
@@ -62,8 +63,9 @@ class NodeB:
                     # Add the transformed pose and corresponding ID to the message
                     detections_msg.poses.append(transformed_pose.pose)
                     detections_msg.ids.append(tag_id)
+                    detections_msg.types.append(type)
 
-                    rospy.loginfo(self.classify_object(tag_id)) # print detected id and category of the object
+                    rospy.loginfo(f"{tag_id}, type = {type}") # print detected id and category of the object
                     
                 except Exception as e:
                     rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
@@ -87,14 +89,14 @@ class NodeB:
 
     def classify_object(self, tag_id):
         if tag_id in [1, 2, 3]:
-            return f"{tag_id}, type = hexagonal prism"
+            return "hexagonal prism"
         elif tag_id in [4, 5, 6]:
-            return f"{tag_id}, type = cube"
+            return "cube"
         elif tag_id in [7, 8, 9]:
-            return f"{tag_id}, type = triangular prism"
-        else:
-            return f"{tag_id}, type = table"
-
+            return "triangular prism"
+        elif tag_id == 10:
+            return "placing table"
+        
 if __name__ == '__main__':
     try:
         node = NodeB()

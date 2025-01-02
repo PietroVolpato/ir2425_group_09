@@ -162,7 +162,8 @@ include_directories(
 catkin_install_python(PROGRAMS
     scripts/nodeA.py
     scripts/nodeB.py
-    scripts/nodeC.py
+    scripts/nodeC_co.py
+    scripts/nodeC_manipulator.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
