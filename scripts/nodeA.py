@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 import rospy
-from tiago_iaslab_simulation.srv import Coeffs  # Replace 'your_package' with your ROS package name
+from tiago_iaslab_simulation.srv import Coeffs
 from std_msgs.msg import String
 import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 import math
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from ir2425_group_09.msg import Detections  # custom message
 from tf.transformations import quaternion_from_euler
 
 class NodeA:
@@ -18,8 +17,6 @@ class NodeA:
 
         # publisher to notify nodeB that we reached a docking point, thus we are ready to make detections
         self.ready_detection_pub = rospy.Publisher('/ready_detection', String, queue_size=10)
-
-        # rospy.Subscriber('/detected_objects', Detections, self.process_detections)   # HERE JUST MOMENTARILY, should be in C
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -40,7 +37,7 @@ class NodeA:
         self.docking_points = {
             "corridor exit": (8.7, 0),              # transition point
             # "placing table" : (8.8, -2),            
-            "picking table front" : (8.7, -3),      # DOCKING POINT
+            "picking table front" : (8.9, -3),      # DOCKING POINT
             "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
             "picking table side" : (8, -4.1),         # DOCKING point
             "picking table vert2" : (6.8, -4.1),    # transition point top left vertex
@@ -148,20 +145,6 @@ class NodeA:
 
         # Publish the command
         self.head_pub.publish(head_cmd)
-
-    # def process_detections(self, msg):  # callback to process detections. TEMPORARILY HERE, for testing. SHOULD BE IN NODE C
-    #     poses = msg.poses
-    #     ids = msg.ids
-    #     target = msg.target
-    #     print(f"target is : {target}")
-    #     print("received detections:")
-    #     for i in range(len(poses)):
-    #         id = ids[i]
-    #         pose = poses[i]
-    #         x = pose.position.x
-    #         y = pose.position.y
-    #         z = pose.position.z
-    #         print(f"id: {id}, x = {x:.3f}, y = {y:.3f}, z = {z:.3f}")
 
     def find_path_to_point(self, target_point):
         """

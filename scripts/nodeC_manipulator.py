@@ -1,5 +1,5 @@
 import rospy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Pose
 from moveit_commander import PlanningSceneInterface, RobotCommander, MoveGroupCommander
 from moveit_msgs.msg import CollisionObject
 from shape_msgs.msg import SolidPrimitive
@@ -10,13 +10,14 @@ from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from math import pi
+from tf.transformations import quaternion_from_euler
 
 class NodeC_manipulator:
     def __init__ (self):
         rospy.init_node('nodeC_manipulator')
 
         # Subscribe to the nav_goal topic
-        rospy.Subscriber('/start_manipulation', CollisionObject, self.manipulation_callback)
+        rospy.Subscriber('/start_manipulation', PoseStamped, self.manipulation_callback)
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -34,11 +35,19 @@ class NodeC_manipulator:
         self.arm_torso_group = MoveGroupCommander("arm_torso")
         self.gripper_group = MoveGroupCommander("gripper")
 
+        self.arm_torso_group.set_max_velocity_scaling_factor(0.5)
+        self.arm_torso_group.set_max_acceleration_scaling_factor(0.5)
+        self.arm_torso_group.set_planning_time(10.0)  
+        self.arm_torso_group.set_num_planning_attempts(30)  
+        self.arm_torso_group.set_goal_position_tolerance(0.01)
+        self.arm_torso_group.set_goal_orientation_tolerance(0.01)
+
         self.object_list = {'1' : 'hexagonal prism', '2': 'hexagonal prism', '3' : 'hexagonal prism',
                             '4': 'cube', '5': 'cube', '6': 'cube',
                             '7': 'traingular prism', '8': 'traingular prism', '9': 'traingular prism'}
         
-        rospy.sleep(10.0)
+        rospy.sleep(15.0)
+
         self.initial_config()
 
     def initial_config(self):
@@ -47,108 +56,88 @@ class NodeC_manipulator:
         """
         rospy.loginfo("Moving arm to initial configuration")
         
-        try:
-            # Get current state and joint values
-            self.arm_torso_group.set_start_state_to_current_state()
-            current_joint_values = self.arm_group.get_current_joint_values()
+        # Get current state and joint values
+        self.arm_torso_group.set_start_state_to_current_state()
+        current_joint_values = self.arm_group.get_current_joint_values()
             
-            # Define target configuration
-            configuration = {
+        # Define target configuration
+        configuration = {
                 'torso_lift_joint': 0.35,
                 'arm_1_joint': pi / 2,
-                'arm_2_joint': 1.0,
+                'arm_2_joint': 0.5,
                 'arm_3_joint': 0.0,
                 'arm_4_joint': 0.0,
                 'arm_5_joint': current_joint_values[4],
                 'arm_6_joint': current_joint_values[5],
-                'arm_7_joint': current_joint_values[6]
-            }
+                'arm_7_joint': current_joint_values[6]}
             
-            # Set planning parameters
-            self.arm_torso_group.set_goal_joint_tolerance(0.02)
-            self.arm_torso_group.set_planning_time(5.0)
-            
-            # Set target and plan
-            self.arm_torso_group.set_joint_value_target(configuration)
-            plan = self.arm_torso_group.plan()
-            
-            # Handle different return types based on MoveIt version
-            if isinstance(plan, tuple):
-                success = plan[0]
-                trajectory = plan[1]
-            else:
-                success = True
-                trajectory = plan
-                
-            if success and trajectory:
-                rospy.loginfo("Planning successful, executing trajectory...")
-                self.arm_torso_group.execute(trajectory, wait=True)
-                rospy.loginfo("Initial configuration reached")
-                return True
-            else:
-                rospy.logerr("Planning failed")
-                return False
-                
-        except Exception as e:
-            rospy.logerr(f"Error moving to initial configuration: {str(e)}")
-            return False
+        # Set target and plan
+        self.arm_torso_group.set_joint_value_target(configuration)
+
+        self.arm_torso_group.go(wait=True)
+        self.arm_torso_group.stop()
 
     def manipulation_callback(self, msg):
         """
         Start the manipulation process
         """
         rospy.loginfo("Received manipulation command")
-        target = msg
+        target_pose = msg
         
         # Identify the object
-        type = self.identify_object(target)
-        rospy.loginfo(f"Identified target object: {type}")
-        
-        # If it is a cube or a triangular prim, moive the arm 10 cm above the object
-        # if type == 'cube' or type == 'triangular prism':
-        # self.initial_config()
-        self.move_arm_above_object(target)
+        # type = self.identify_object(target)
+        # rospy.loginfo(f"Identified target object: {type}")
+        self.move_arm_above_object(target_pose)
 
 
-    def move_arm_above_object(self, target):
+    def move_arm_above_object(self, target_pose):
         """
         Move the arm 10 cm above the object
         """
         rospy.loginfo("Moving arm above object")
+        print(f"Target pose: {target_pose.pose.position.x, target_pose.pose.position.y, target_pose.pose.position.z}")
         try:
-            # Get the pose of the object
-            pose = target.pose
-            pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "base_link"
-            pose_stamped.pose = pose
+            target_pose.pose.position.z += 0.3
+            q = quaternion_from_euler(-pi, 0, pi/2)
+            target_pose.pose.orientation.x = q[0]
+            target_pose.pose.orientation.y = q[1]
+            target_pose.pose.orientation.z = q[2]
+            target_pose.pose.orientation.w = q[3]
 
-            # Move the arm 10 cm above the object
-            pose_stamped.pose.position.z += 0.1
+            self.arm_torso_group.set_pose_target(target_pose)
 
-            self.arm_torso_group.set_pose_target(pose_stamped)
+            success = self.arm_torso_group.go(wait=True)
+            self.arm_torso_group.stop()
+            self.arm_torso_group.clear_pose_targets()
+
             
-            # Get plan (in newer MoveIt versions, plan() returns only the plan)
-            plan = self.arm_group.plan()
-            
-            if isinstance(plan, tuple):
-                # MoveIt 1.1+ returns tuple (success, trajectory)
-                success = plan[0]
-                trajectory = plan[1]
-            else:
-                # Older MoveIt versions return only trajectory
-                success = True
-                trajectory = plan
-                
-            if success:
-                rospy.loginfo("Planning successful, executing trajectory...")
-                self.arm_group.execute(trajectory, wait=True)
-                rospy.loginfo("Arm moved above object")
-            else:
-                rospy.logerr("Planning failed!")
+            # # Get plan
+            # plan = self.arm_group.plan()
+             
+            # success = plan[0]
+            # trajectory = plan[1]
+             
+            # if success:
+            #     rospy.loginfo("Planning successful, executing trajectory...")
+            #     self.arm_group.execute(trajectory, wait=True)
+            #     rospy.loginfo("Arm moved above object, starting grasp...")
+
+            # else:
+            #     rospy.logerr("Planning failed!")
                 
         except Exception as e:
             rospy.logerr(f"Error moving arm: {str(e)}")
 
+    def grasp_object(self, target):
+        """
+        Grasp the target object
+        """
+        type = self.identify_object(target)
+        rospy.loginfo(f"Grasping object of type: {type}")
+
+        # Move the arm down to grasp the object through a linear movement
+
+                    
 
     def identify_object(self, target):
         """

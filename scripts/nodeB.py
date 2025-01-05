@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from apriltag_ros.msg import AprilTagDetectionArray  # Assuming apriltag_ros package
+from apriltag_ros.msg import AprilTagDetectionArray
 from geometry_msgs.msg import PoseArray, PoseStamped
 import tf2_ros 
 from tf2_geometry_msgs import do_transform_pose
@@ -71,6 +71,7 @@ class NodeB:
                     rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
 
             detections_msg.target = random.choice(detections_msg.ids)  # FOR NOW RANDOM CHOICE, will implement the color criterion
+            print(f"Target object: {detections_msg.target}")
 
             # Publish the combined message
             self.object_pub.publish(detections_msg)
