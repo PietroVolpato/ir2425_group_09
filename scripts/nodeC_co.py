@@ -7,6 +7,7 @@ from shape_msgs.msg import SolidPrimitive
 from ir2425_group_09.msg import Detections
 import tf2_ros
 from tf2_geometry_msgs import do_transform_pose
+from ir2425_group_09.msg import PoseObjectId
 
 class NodeC_co:
     def __init__ (self):
@@ -20,34 +21,48 @@ class NodeC_co:
         self.listener = tf2_ros.TransformListener(self.tfBuffer)
         self.table_positions = [(7.8, -2.0), (7.8, -3.0)]
 
-        self.man_pub = rospy.Publisher('/start_manipulation', PoseStamped, queue_size=10)
+        self.man_pub = rospy.Publisher('/start_manipulation', PoseObjectId, queue_size=10)
         
         # Initialize the PlanningSceneInterface
-        self.scene = PlanningScene()
-        
-        # Create a publisher for the planning scene
-        self.scene_pub = rospy.Publisher('/planning_scene', PlanningScene, queue_size=10)
+        self.scene = PlanningSceneInterface() # you don't need to publish it, handled automatically
         
         rospy.sleep(1.0)
 
-        # # Add the pickup table to the planning scene
-        # pickup_table = self.create_pickup_table_collision_object()
-        # self.scene.world.collision_objects.append(pickup_table)
+        # definition of real object dimensions
+        self.objects_dimensions = {
+            "table" : [0.9, 0.9, 0.75],
+            "cube" : [0.05, 0.05, 0.05],
+            "hexagonal prism" : [0.1, 0.025],
+            "triangular prism" : [0.07, 0.05, 0.035]
+        }
 
         self.current_objects = []
 
-        self.table = self.create_pickup_table()
+        self.table_pose = self.create_table_pose() # static table pose (3D center)
+    
+    def create_table_pose(self):
+        """
+        pose of the geometric center of the table (3D solid object) in map frame
+        """
+        table_pose = PoseStamped()
+        table_pose.header.frame_id = "map"
+        table_pose.pose.position.x = self.table_positions[1][0]
+        table_pose.pose.position.y = self.table_positions[1][1]
+        table_pose.pose.position.z = self.objects_dimensions["table"][2]/2 
+        table_pose.pose.orientation.w = 1.0
+
+        return table_pose
 
     def detection_callback(self, msg):
+        """
+        Process the objects detected by nodeB, creating a suitable collision object for each detection, and for the table.
+        The target pose is then published to nodeC_manipulator, in order to grab it
+        """
         poses = msg.poses
         ids = msg.ids
         types = msg.types
         target = msg.target
         
-        # Create a PlanningScene message
-        planning_scene = PlanningScene()
-        planning_scene.is_diff = True  # Set to True to update the scene
-
         for i in range(len(poses)):
             id = ids[i]
             pose = poses[i]
@@ -56,98 +71,75 @@ class NodeC_co:
             y = pose.position.y
             z = pose.position.z
 
-            print(f"Received detection: id = {id}, type = {type}, x = {x:.2f}, y = {y:.2f}, z = {z:.2f}")
-            collision_obj = self.add_collision_object(id, type, pose)
+            #print(f"Received detection: id = {id}, type = {type}, x = {x:.2f}, y = {y:.2f}, z = {z:.2f}")
+            collision_obj = self.get_collision_object(id, type, pose)
             if collision_obj:
                 # Add the collision object to the planning scene
-                planning_scene.world.collision_objects.append(collision_obj)
+                self.scene.add_object(collision_obj)
                 self.current_objects.append(collision_obj)
 
-        # Add the pickup table to the planning scene
+        # Add the pickup table to the planning scene interface
         self.update_table()
 
-        # Publish the planning scene
-        self.scene_pub.publish(planning_scene)
+        rospy.sleep(1.0)
+        rospy.loginfo(f"Created collsion objects (table + {len(poses)} objects)")
 
         # Send to the manipulator the target object
-        index = ids.index(target)
+        index = ids.index(target)   # get index of target obj
         pose_target = poses[index]
         pose_stamped_target = PoseStamped()
         pose_stamped_target.header.frame_id = "base_link"
         pose_stamped_target.pose = pose_target
-        self.man_pub.publish(pose_stamped_target)
+        pose_id_msg = PoseObjectId()
+        pose_id_msg.pose = pose_stamped_target
+        pose_id_msg.id = target
+        self.man_pub.publish(pose_id_msg) 
 
-    def create_pickup_table(self):
-        table_pose = PoseStamped()
-        table_pose.header.frame_id = "map"
-        table_pose.pose.position.x = self.table_positions[1][0]
-        table_pose.pose.position.y = self.table_positions[1][1]
-        table_pose.pose.position.z = 0.9
-
-        return table_pose
     
     def update_table(self):
-        if not hasattr(self, 'table'):
-            rospy.logwarn("No table object available to update")
-            return
-
-        # Create new collision object
-        new_table = CollisionObject()
-        new_table.id = "pickup table"
-        new_table.header.frame_id = "base_link"
-        new_table.primitives.append(SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.92, 0.92, 0.9]))
+        """
+        Updates the collision object for the table in the MoveIt planning scene.
+        """
 
         try:
-            # Clear previous table object
-            self.scene.world.collision_objects = [obj for obj in self.scene.world.collision_objects if obj.id != "pickup table"]
-            
-            # Get transform with timeout
-            transform = self.tfBuffer.lookup_transform("base_link", 
-                                                     self.table.header.frame_id, 
-                                                     rospy.Time(0),
-                                                     rospy.Duration(1.0))
-            
-            # Create and transform pose
+            # Define the table collision object
+            table_collision_object = CollisionObject()
+            table_collision_object.id = "pickup_table"
+            table_collision_object.header.frame_id = "base_link"
+            table_collision_object.operation = CollisionObject.ADD
+
+            # Define the table's shape and dimensions
+            table_shape = SolidPrimitive()
+            table_shape.type = SolidPrimitive.BOX
+            table_shape.dimensions = self.objects_dimensions["table"]  # [x, y, z] dimensions of the table
+            table_collision_object.primitives.append(table_shape)
+
+            # Get and transform the table pose
+            transform = self.tfBuffer.lookup_transform("base_link", self.table_pose.header.frame_id, rospy.Time(0))
             pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "map"
-            pose_stamped.pose = self.table.pose
-            pose_stamped.pose.position.z -= 0.9 / 2  # Adjust for table height
-            pose_stamped.pose.orientation.w = 1.0
-            
+            pose_stamped.header.frame_id = self.table_pose.header.frame_id
+            pose_stamped.pose = self.table_pose.pose
+
+            # Transform the pose to base_link frame
             transformed_pose = do_transform_pose(pose_stamped, transform)
-            new_table.primitive_poses.append(transformed_pose.pose)
-            new_table.operation = CollisionObject.ADD
-            
-            # Update scene
-            self.scene.world.collision_objects.append(new_table)
-            self.scene_pub.publish(self.scene)
-            
+
+            # Adjust pose to ensure it aligns with the center of the table
+
+            table_collision_object.primitive_poses.append(transformed_pose.pose)
+
+            # Remove the existing table and add the updated one
+            self.scene.remove_world_object("pickup_table")
+            self.scene.add_object(table_collision_object)
+
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logerr(f"Transform error for table: {str(e)}")
+            rospy.logerr(f"Transform error while updating table: {e}")
         except Exception as e:
-            rospy.logerr(f"Failed to update table: {str(e)}")
-    
-    def add_placing_table(self):
-        """
-        Add the placing table to the planning scene
-        """
-        table = CollisionObject()
-        table.id = "placing_table"
-        table.header.frame_id = "map"
-        table.primitives.append(SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.95, 0.95, 0.02]))
-        pose = PoseStamped()
-        pose.header.frame_id = "map"
-        pose.pose.position.x = self.table_positions[0][0]
-        pose.pose.position.y = self.table_positions[0][1]
-        pose.pose.position.z = 0.88
-        table.primitive_poses.append(pose.pose)
-        table.operation = CollisionObject.ADD
-        return table
+            rospy.logerr(f"Failed to update table collision object: {e}")
 
 
-    def add_collision_object(self, id, type, pose):
+    def get_collision_object(self, id, type, pose):
         """
-        Add a collision object to the planning scene.
+        produce a collision object from the object pose
         """
         obj = CollisionObject()
         obj.id = str(id)
@@ -155,27 +147,27 @@ class NodeC_co:
         obj.header.stamp = rospy.Time.now()
 
         if type == "cube":
-            obj.primitives.append(SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.05, 0.05, 0.05]))
+            obj.primitives.append(SolidPrimitive(type=SolidPrimitive.BOX, dimensions=self.objects_dimensions["cube"]))
             pose_stamped = PoseStamped()
             pose_stamped.header.frame_id = "base_link"
             pose_stamped.pose = pose
-            pose_stamped.pose.position.z -= 0.05 / 2
+            pose_stamped.pose.position.z -= self.objects_dimensions["cube"][2] / 2  # center the pose
             obj.primitive_poses.append(pose_stamped.pose)
             obj.operation = CollisionObject.ADD
             return obj
 
         elif type == "hexagonal prism":
-            obj.primitives.append(SolidPrimitive(type=SolidPrimitive.CYLINDER, dimensions=[0.1, 0.025]))
+            obj.primitives.append(SolidPrimitive(type=SolidPrimitive.CYLINDER, dimensions=self.objects_dimensions["hexagonal prism"]))
             pose_stamped = PoseStamped()
             pose_stamped.header.frame_id = "base_link"
             pose_stamped.pose = pose 
-            pose_stamped.pose.position.z -= 0.1 / 2
+            pose_stamped.pose.position.z -= self.objects_dimensions["hexagonal prism"][0] / 2  # center the pose
             obj.primitive_poses.append(pose_stamped.pose)
             obj.operation = CollisionObject.ADD
             return obj
 
         elif type == "triangular prism":
-            obj.primitives.append(SolidPrimitive(type=SolidPrimitive.BOX, dimensions=[0.07, 0.05, 0.035]))
+            obj.primitives.append(SolidPrimitive(type=SolidPrimitive.BOX, dimensions=self.objects_dimensions["triangular prism"]))
             pose_stamped = PoseStamped()
             pose_stamped.header.frame_id = "base_link"
             pose_stamped.pose = pose

@@ -8,6 +8,7 @@ from tf2_geometry_msgs import do_transform_pose
 from std_msgs.msg import String
 from ir2425_group_09.msg import Detections  # custom message
 import random
+import math
 
 
 class NodeB:
@@ -27,6 +28,7 @@ class NodeB:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.current_detections = None
+        self.max_picking_distance = 0.8
     
     def send_detections_callback(self, msg):
         """
@@ -44,7 +46,6 @@ class NodeB:
         try:
             # Lookup the transformation from the camera frame to the base frame
             transform = self.tf_buffer.lookup_transform("base_link", "xtion_rgb_optical_frame", rospy.Time(0))
-            rospy.loginfo(f"number of DETECTIONS: {len(self.current_detections)}")
 
             for detection in self.current_detections:
                 tag_id = detection.id[0]
@@ -60,18 +61,27 @@ class NodeB:
                     # Transform the pose to the base frame
                     transformed_pose = do_transform_pose(pose_stamped, transform)
 
-                    # Add the transformed pose and corresponding ID to the message
-                    detections_msg.poses.append(transformed_pose.pose)
-                    detections_msg.ids.append(tag_id)
-                    detections_msg.types.append(type)
-
-                    rospy.loginfo(f"{tag_id}, type = {type}") # print detected id and category of the object
+                    x_obj = transformed_pose.pose.position.x
+                    y_obj = transformed_pose.pose.position.y
+                    planar_distance = math.sqrt(x_obj**2 + y_obj**2)
+                    if planar_distance < self.max_picking_distance:
+                        # Add the transformed pose and corresponding ID to the message
+                        detections_msg.poses.append(transformed_pose.pose)
+                        detections_msg.ids.append(tag_id)
+                        detections_msg.types.append(type)
+                        rospy.loginfo(f"Detected reachable obj id {tag_id}, {type}. Planar dist = {planar_distance:.2f}") # print detected id and category of the object
                     
                 except Exception as e:
                     rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
 
-            detections_msg.target = random.choice(detections_msg.ids)  # FOR NOW RANDOM CHOICE, will implement the color criterion
-            print(f"Target object: {detections_msg.target}")
+            target = random.choice(detections_msg.ids)  # FOR NOW RANDOM CHOICE, will implement the color criterion
+            detections_msg.target = target
+            index = detections_msg.ids.index(target)  # get target index
+            target_pose = detections_msg.poses[index] # get target pose to print information
+            x = target_pose.position.x
+            y = target_pose.position.y
+            z = target_pose.position.z
+            rospy.loginfo(f"TARGET selected: {target}, {self.classify_object(target)}. Pose w.r.t. Tiago: ({x:.3f},{y:.3f},{z:.3f})")
 
             # Publish the combined message
             self.object_pub.publish(detections_msg)
@@ -80,7 +90,7 @@ class NodeB:
             rospy.loginfo(f"Transform lookup failed: {e}")
         except tf2_ros.ExtrapolationException as e:
             rospy.loginfo(f"Transform extrapolation error: {e}")
-
+    
     def tag_callback(self, msg):
         """
         For efficiency reasons the detection are kept in the node internal state, and will transformed and sent to node C only when nodeA 
