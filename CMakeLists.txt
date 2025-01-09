@@ -51,7 +51,8 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Detections.msg
-  PoseObjectId.msg
+  TargetObject.msg
+  PlacingMessage.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -161,10 +162,11 @@ include_directories(
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
-    scripts/nodeA.py
+    scripts/nodeA_navigation.py
+    scripts/nodeA_placing_routine.py
     scripts/nodeB.py
-    scripts/nodeC_co.py
-    scripts/nodeC_manipulator.py
+    scripts/nodeC_planning_scene.py
+    scripts/nodeC_picking_routine.py
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

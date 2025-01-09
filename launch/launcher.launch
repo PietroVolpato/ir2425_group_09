@@ -1,6 +1,7 @@
 <launch>
-    <node pkg="ir2425_group_09" type="nodeA.py" name="nodeA" output="screen" />
+    <node pkg="ir2425_group_09" type="nodeA_navigation.py" name="nodeA_navigation" output="screen" />
+    <node pkg="ir2425_group_09" type="nodeA_placing_routine.py" name="nodeA_placing_routine" output="screen" />
     <node pkg="ir2425_group_09" type="nodeB.py" name="nodeB" output="screen" />
-    <node pkg="ir2425_group_09" type="nodeC_co.py" name="nodeC_co" output="screen" />
-    <node pkg="ir2425_group_09" type="nodeC_manipulator.py" name="nodeC_manipulator" output="screen" />
+    <node pkg="ir2425_group_09" type="nodeC_planning_scene.py" name="nodeC_planning_scene" output="screen" />
+    <node pkg="ir2425_group_09" type="nodeC_picking_routine.py" name="nodeC_picking_routine" output="screen" />
 </launch>
