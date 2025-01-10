@@ -43,7 +43,7 @@ class nodeC_picking_routine:
 
         self.object_list = {1 : 'hexagonal prism', 2: 'hexagonal prism', 3 : 'hexagonal prism',
                             4: 'cube', 5: 'cube', 6 : 'cube',
-                            7: 'traingular prism', 8 : 'traingular prism', 9 : 'traingular prism'}
+                            7: 'triangular prism', 8 : 'triangular prism', 9 : 'triangular prism'}
 
         # map from object ids to model names in gazebo 
         self.model_names = {
