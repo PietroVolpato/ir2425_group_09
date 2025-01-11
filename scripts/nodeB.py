@@ -8,6 +8,7 @@ from tf2_geometry_msgs import do_transform_pose
 from std_msgs.msg import String
 from ir2425_group_09.msg import Detections  # custom message
 from ir2425_group_09.msg import TargetObject  # custom message
+from std_msgs.msg import Int32
 import random
 import math
 
@@ -27,6 +28,8 @@ class NodeB:
 
         # node a tells what are the detections for ("placing" or "picking")
         rospy.Subscriber('/detections_command', String, self.send_detections_callback)
+
+        self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10) # to move the camera angle
 
         # TF2 setup
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
@@ -92,8 +95,14 @@ class NodeB:
         self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
 
         if current_task == "picking":
-
-            target_id = random.choice(detections_msg.ids)  # FOR NOW RANDOM CHOICE, will implement the color criterion
+            target_id = -1
+            for elem in detections_msg.ids:
+                if elem in [1,2,3]:
+                    target_id = elem
+            
+            if target_id == -1:  # no valid target in the detections
+                self.feedback_pub.publish(Int32(data=target_id))  # send nodeA_navigation -1, which means no target in the detections
+                return
 
             index = detections_msg.ids.index(target_id)  # get target index
             target_pose = detections_msg.poses[index] # get target pose to print information
