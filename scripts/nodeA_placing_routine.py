@@ -177,7 +177,7 @@ class nodeA_placing_routine:
 
         rospy.loginfo("Gripper closed")
 
-    def open_gripper(self, opening=0.09):
+    def open_gripper(self, opening=0.08):
         """
         Open the gripper to release the object.
         """

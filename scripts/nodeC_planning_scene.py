@@ -75,6 +75,9 @@ class nodeC_planning_scene:
         # Add the pickup table to the planning scene interface
         self.update_table(task)
 
+        # Add the placing table to the planning scene interface
+        self.update_table("placing")
+
         rospy.loginfo(f"Created collsion objects (table + {len(poses)} objects)")
 
     

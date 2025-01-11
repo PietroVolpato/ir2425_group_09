@@ -134,6 +134,8 @@ class nodeC_picking_routine:
         self.align_gripper_vertically(target_pose, z_above_object)  # lift object
         rospy.loginfo(f"Object lifted, ready to move to placing table")
 
+        self.remove_all_objects()
+
         self.feedback_pub.publish(Int32(data=target_id))
 
     def align_gripper_vertically(self, target_pose, z_offset = 0.35):
@@ -254,6 +256,14 @@ class nodeC_picking_routine:
     #     except (tf2_ros.LookupException, tf2_ros.ExtrapolationException) as e:
     #         rospy.logerr(f"Error transforming pose: {e}")
     #         return None       
+
+    def remove_all_objects(self):
+        """
+        Remove all objects from the planning scene.
+        """
+        scene = PlanningSceneInterface()
+        scene.remove_world_object()
+        rospy.sleep(1.0)
 
 if __name__ == '__main__':
     try:
