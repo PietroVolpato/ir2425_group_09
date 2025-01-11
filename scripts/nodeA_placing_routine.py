@@ -40,8 +40,6 @@ class nodeA_placing_routine:
         self.arm_torso_group.set_max_acceleration_scaling_factor(0.5)
         self.arm_torso_group.set_planning_time(10.0) 
 
-        self.default_config = self.arm_torso_group.get_current_joint_values()
-
         self.target_id = None
 
         self.object_list = {1 : 'hexagonal prism', 2: 'hexagonal prism', 3 : 'hexagonal prism',
@@ -94,9 +92,14 @@ class nodeA_placing_routine:
             target_pose.position.y = y
             target_pose.position.z = z
 
+            z_offset = 0.3 + object_height
+
             # align the gripper vertically
-            self.align_gripper_vertically(target_pose)
+            self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("Arm positioned above the target point")
+
+            self.align_gripper_vertically(target_pose, 0.2 + object_height)
+            rospy.loginfo("Object placed on the target point")
 
             # open the gripper
             self.open_gripper()
@@ -105,6 +108,9 @@ class nodeA_placing_routine:
             # detach object from gripper
             self.detach_object_from_gripper()
             rospy.loginfo("Object detached from gripper")
+
+            self.align_gripper_vertically(target_pose, z_offset)
+            rospy.loginfo("Arm positioned after placing object")
 
             # move the arm to the default configuration
             self.move_to_default_config()
@@ -117,7 +123,7 @@ class nodeA_placing_routine:
         except Exception as e:
             rospy.logerr(f"Error placing object: {str(e)}")
 
-    def align_gripper_vertically(self, target_pose, z_offset = 0.3):
+    def align_gripper_vertically(self, target_pose, z_offset):
         """
         This function place the gripper on the following pose:
             - x and y are the same of the target pose
@@ -216,8 +222,38 @@ class nodeA_placing_routine:
         """
         Move the arm to the default configuration
         """
-        self.arm_torso_group.go(self.default_config, wait=True)
-        self.arm_torso_group.stop()
+        configuration_1 = {
+                'torso_lift_joint': 0.35,
+                'arm_1_joint': 0.1,
+                'arm_2_joint': 0,
+                'arm_3_joint': -0.2,
+                'arm_4_joint': 0,
+                'arm_5_joint': -1.57,
+                'arm_6_joint': 1.370,
+                'arm_7_joint': 0
+        }
+        configuration_2 = {
+                'torso_lift_joint': 0.35,
+                'arm_1_joint': 0.2,
+                'arm_2_joint': -1.3,
+                'arm_3_joint': -0.2,
+                'arm_4_joint': 1.94,
+                'arm_5_joint': -1.57,
+                'arm_6_joint': 1.368,
+                'arm_7_joint': 0
+                }
+        
+        try:
+            self.arm_torso_group.set_joint_value_target(configuration_1)
+            self.arm_torso_group.go(wait=True)
+            self.arm_torso_group.stop()
+
+            self.arm_torso_group.set_joint_value_target(configuration_2)
+            self.arm_torso_group.go(wait=True)
+            self.arm_torso_group.stop()
+
+        except Exception as e:
+            rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
         rospy.loginfo("Arm moved to default configuration")
 

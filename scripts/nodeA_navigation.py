@@ -10,7 +10,7 @@ import math
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 import tf2_ros 
 from tf2_geometry_msgs import do_transform_pose
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from ir2425_group_09.msg import PlacingMessage  # custom message
 import numpy as np
 
@@ -39,6 +39,9 @@ class nodeA_navigation:
         # TF2 setup
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
+        # Publisher for velocity commands
+        self.cmd_vel_pub = rospy.Publisher('/mobile_base_controller/cmd_vel', Twist, queue_size=50)
 
         # Define static docking points + transition points
         self.docking_points = {
@@ -73,6 +76,57 @@ class nodeA_navigation:
 
         self.counter_placed_objects = 0
 
+    def rotation(self, angle, theta):
+        """
+        This function makes tiago rotate on himself.
+        Angle: total angle of desired rotation
+        Theta: angular velocity in rad/s. Positive for counterclockwise, negative for clockwise
+        """
+
+        # Define the Twist message for rotation
+        rotate_cmd = Twist()
+        rotate_cmd.angular.z = theta  # Angular velocity in radians/second (counterclockwise)
+
+        # Calculate rotation duration 
+        rotation_duration = angle / abs(rotate_cmd.angular.z) 
+
+        rate = rospy.Rate(10)  
+        start_time = rospy.Time.now()
+    
+        while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
+            self.cmd_vel_pub.publish(rotate_cmd)
+            rate.sleep()
+
+        # Stop the robot after rotation
+        self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
+
+    def move_straight(self, distance, speed=0.5):
+        # Definisci il messaggio Twist
+        velocity_msg = Twist()
+        velocity_msg.linear.x = speed  # Velocità lineare
+        velocity_msg.angular.z = 0.0  # Nessuna rotazione
+
+        # Calcola il tempo necessario per percorrere la distanza
+        start_time = rospy.Time.now().to_sec()
+        current_distance = 0.0
+
+        rate = rospy.Rate(10)  # Frequenza di pubblicazione (10 Hz)
+
+        while current_distance < distance:
+            # Pubblica il messaggio di velocità
+            self.cmd_vel_pub.publish(velocity_msg)
+
+            # Calcola la distanza percorsa
+            current_time = rospy.Time.now().to_sec()
+            current_distance = speed * (current_time - start_time)
+
+            rate.sleep()
+
+        # Ferma il robot
+        velocity_msg.linear.x = 0.0
+        self.cmd_vel_pub.publish(velocity_msg)
+        rospy.loginfo("Target distance reached.")
+
     def send_goal(self, target):
         """
         Sends a goal using MoveBaseAction. The target should be a name of one of the predefined points, which are associated to 
@@ -80,6 +134,8 @@ class nodeA_navigation:
         We wait until actionlib communicates that the goal is over, and if the target was a docking point for the picking table,
         a message is sent to nodeB to notify we are ready to make detections.
         """
+        result = None
+        
         goal = MoveBaseGoal()
         target = target.lower().strip()
         if target not in self.docking_points.keys():
@@ -111,12 +167,54 @@ class nodeA_navigation:
         goal.target_pose.pose.orientation.w = math.cos(theta/2)
         goal.target_pose.pose.orientation.z = math.sin(theta/2)
         #rospy.loginfo(f"Sending goal: {target}")
-        self.nav_client.send_goal(goal)
+        print(f"Sending goal: {target}")
 
-        self.nav_client.wait_for_result()
-        result = self.nav_client.get_state()
+        # if self.current_point == "picking table behind":
+        #     if target == "placing table behind":
+        #         self.rotation(math.pi / 2, 1)
+        #     elif target == "picking table vert2":
+        #         self.rotation(math.pi / 2, -1)
+
+        # if self.current_point == "placing table behind":
+        #     self.rotation(math.pi / 2, -1)
+        use_move_base = True
+        if self.current_point == "picking table vert2":
+            if target == "picking table behind":
+                self.rotation(math.pi * 0.52, -1)
+                self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
+                self.rotation(math.pi / 2, -1)
+            elif target == "placing table behind":
+                self.rotation(math.pi / 2, -1)
+                self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
+                self.rotation(math.pi / 2, -1)
+            use_move_base = False
+        elif self.current_point == "picking table behind":
+            if target == "picking table vert2":
+                self.rotation(math.pi / 2, -1)
+                self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["picking table behind"][1]))
+                self.rotation(math.pi / 2, 1)
+            elif target == "placing table behind":
+                self.rotation(math.pi / 2, 1)
+                self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table behind"][1]))
+                self.rotation(math.pi / 2, -1)
+            use_move_base = False
+        elif self.current_point == "placing table behind":
+            if target == "picking table vert2":
+                self.rotation(math.pi / 2, -1)
+                self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["placing table behind"][1]))
+                self.rotation(math.pi / 2, 1)
+            elif target == "picking table behind":
+                self.rotation(math.pi / 2, -1)
+                self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
+                self.rotation(math.pi / 2, 1)
+            use_move_base = False
+
+        if use_move_base == True:
+            self.nav_client.send_goal(goal)
+            self.nav_client.wait_for_result()
+            result = self.nav_client.get_state()
         
-        if result == actionlib.GoalStatus.SUCCEEDED:   
+        if result == actionlib.GoalStatus.SUCCEEDED or not use_move_base: 
 
             if target in self.alive_pickup_points:  # reached pickup point
                 rospy.sleep(0.2)  # wait a little bit to stabilize detections
@@ -313,7 +411,7 @@ class nodeA_navigation:
         y1 = y_c - self.table_side/2
         y2 = y_c + self.table_side/2 - margin
 
-        distances = np.arange(0.1, 2, 0.15)  # to modify
+        distances = np.arange(0, 2, 0.12)  # to modify
         points = []
         a = math.atan(m)
         for r in distances:

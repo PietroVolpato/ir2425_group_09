@@ -107,7 +107,7 @@ class nodeC_picking_routine:
         target_pose = msg.pose
         target_id = msg.id
 
-        z_above_object = 0.35
+        z_above_object = 0.3
         gripper_space = 0.075
         z_on_object = 0.2
 
@@ -138,7 +138,7 @@ class nodeC_picking_routine:
 
         self.feedback_pub.publish(Int32(data=target_id))
 
-    def align_gripper_vertically(self, target_pose, z_offset = 0.35):
+    def align_gripper_vertically(self, target_pose, z_offset):
         """
         This function place the gripper on the following pose:
             - x and y are the same of the target pose
@@ -234,28 +234,44 @@ class nodeC_picking_routine:
         except rospy.ROSException as e:
             rospy.logerr(f"Service call failed: {str(e)}")
     
-    # def transform_to_base_link(self, pose):
-    #     """
-    #     Transform a PoseStamped to the base_link frame.
+    def move_to_default_config (self):
+        """
+        Move the arm to the default configuration
+        """
+        configuration_1 = {
+                'torso_lift_joint': 0.35,
+                'arm_1_joint': 0.1,
+                'arm_2_joint': 0,
+                'arm_3_joint': -0.2,
+                'arm_4_joint': 0,
+                'arm_5_joint': -1.57,
+                'arm_6_joint': 1.370,
+                'arm_7_joint': 0
+        }
+        configuration_2 = {
+                'torso_lift_joint': 0.35,
+                'arm_1_joint': 0.2,
+                'arm_2_joint': -1.3,
+                'arm_3_joint': -0.2,
+                'arm_4_joint': 1.94,
+                'arm_5_joint': -1.57,
+                'arm_6_joint': 1.368,
+                'arm_7_joint': 0
+                }
+        
+        try:
+            self.arm_torso_group.set_joint_value_target(configuration_1)
+            self.arm_torso_group.go(wait=True)
+            self.arm_torso_group.stop()
 
-    #     Args:
-    #         pose (PoseStamped): The input pose.
-    #         target_frame (str): The target frame for transformation.
+            self.arm_torso_group.set_joint_value_target(configuration_2)
+            self.arm_torso_group.go(wait=True)
+            self.arm_torso_group.stop()
 
-    #     Returns:
-    #         PoseStamped: The transformed pose.
-    #     """  
-    #     try:
-    #         transform = self.tf_buffer.lookup_transform(
-    #             "base_link",  # Target frame
-    #             pose.header.frame_id,  # Source frame
-    #             rospy.Time(0),  # Use the latest transform available
-    #             rospy.Duration(1.0)  # Timeout duration
-    #         )
-    #         return do_transform_pose(pose, transform)
-    #     except (tf2_ros.LookupException, tf2_ros.ExtrapolationException) as e:
-    #         rospy.logerr(f"Error transforming pose: {e}")
-    #         return None       
+        except Exception as e:
+            rospy.logerr(f"Failed to move arm to default configuration: {e}")
+
+        rospy.loginfo("Arm moved to default configuration")     
 
     def remove_all_objects(self):
         """

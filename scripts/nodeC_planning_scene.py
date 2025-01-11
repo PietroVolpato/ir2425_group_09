@@ -60,6 +60,7 @@ class nodeC_planning_scene:
         ids = msg.ids
         types = msg.types
         task = msg.task
+        count_obj = 0
         
         for i in range(len(poses)):
             id = ids[i]
@@ -71,6 +72,7 @@ class nodeC_planning_scene:
                 # Add the collision object to the planning scene
                 self.scene.add_object(collision_obj)
                 self.current_objects.append(collision_obj)
+                count_obj += 1
 
         # Add the pickup table to the planning scene interface
         self.update_table(task)
@@ -78,7 +80,7 @@ class nodeC_planning_scene:
         # Add the placing table to the planning scene interface
         self.update_table("placing")
 
-        rospy.loginfo(f"Created collsion objects (table + {len(poses)} objects)")
+        rospy.loginfo(f"Created collsion objects (table + {count_obj} objects)")
 
     
     def update_table(self, table_type):
