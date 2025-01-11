@@ -12,6 +12,7 @@ import tf2_ros
 from tf2_geometry_msgs import do_transform_pose
 from geometry_msgs.msg import PoseStamped
 from ir2425_group_09.msg import PlacingMessage  # custom message
+import numpy as np
 
 class nodeA_navigation:
     def __init__(self):
@@ -25,7 +26,9 @@ class nodeA_navigation:
         # publish the x,y,z of the placing target point in base link, plus the height of the picked object
         self.placing_routine_pub = rospy.Publisher('/placing_routine', PlacingMessage, queue_size=10) # to move the camera angle
 
-        rospy.Subscriber('/picking_routine_feedback', Int32, self.object_picked_callback)
+        self.picking_feedback_sub = rospy.Subscriber('/picking_routine_feedback', Int32, self.object_picked_callback)
+
+        self.picking_feedback_sub = rospy.Subscriber('/placing_routine_feedback', String, self.object_placed_callback)
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -58,9 +61,15 @@ class nodeA_navigation:
         self.object_heights = { 1 : 0.1, 2 : 0.1, 3 : 0.1,
                                 4 : 0.05, 5 : 0.05, 6 : 0.05,
                                 7 : 0.035, 8 : 0.035, 9 : 0.035}
+        
+        self.placing_table_center = (7.8, -2.0)  
+        self.picking_table_center = (7.8, -3.0)
+        self.table_side = 0.9
 
         m,q = self.get_coefficients()
         self.target_points_line_frame = self.compute_target_points(m,q) # points where to place the objects (line reference frame)
+
+        self.counter_placed_objects = 0
 
     def send_goal(self, target):
         """
@@ -173,12 +182,15 @@ class nodeA_navigation:
     
     def object_picked_callback(self, msg):
         """
-        This function is exectuted when nodeC_picking_routine has finished, and send the message with the id of the picked object.
+        This function is executed when nodeC_picking_routine has finished, and sent the message with the id of the picked object.
         It is then computed the more convenient placing point and tiago is sent to it.
         .... TODO ....
         """
         picked_object = msg.data
-
+        if picked_object == -1:
+            rospy.loginfo("No desired object detected, moving to next pickup point")
+            self.move_to_next_pickup_point()
+            return
         if len(self.alive_placement_points) == 1:                # chose the only option in this case
             placing_point = self.alive_placement_points[0]
         else:                                                   # 2 options available, chose the more convenient
@@ -195,7 +207,7 @@ class nodeA_navigation:
         # choose the target point closest to the selected docking placement point
         selected_point = self.target_points_line_frame[0] if placing_point == "placing table front" else self.target_points_line_frame[-1]
 
-        target_point = self.transform_target_point_to_frame(selected_point, "base_link")
+        target_point = self.transform_target_point_to_frame(selected_point, "tag_10", "base_link")
 
         placing_msg = PlacingMessage()
         # x,y,z of the placing point in base link
@@ -205,6 +217,14 @@ class nodeA_navigation:
         placing_msg.object_height = self.object_heights[picked_object] # height of the picked object
 
         self.placing_routine_pub.publish(placing_msg) # start the placing routine
+    
+    def object_placed_callback(self, msg):
+        self.counter_placed_objects += 1 
+        if self.counter_placed_objects == 3:
+            rospy.loginfo("ALL 3 OBJECTS PLACED, TASK COMPLETED :)")
+        else:
+            self.move_to_next_pickup_point()
+            rospy.loginfo("Moving to next pickup point")
 
     def move_to_next_pickup_point(self):
         """
@@ -215,12 +235,12 @@ class nodeA_navigation:
         path = self.find_path_to_point(self.alive_pickup_points[0])  # move to the first 'alive' docking point (may contain targets)
         self.execute_path(path)
 
-    def transform_target_point_to_frame(self, p, frame):
+    def transform_target_point_to_frame(self, p, old_frame, new_frame):
         try:
     
-            transform = self.tf_buffer.lookup_transform(frame, "tag_10", rospy.Time(0))
+            transform = self.tf_buffer.lookup_transform(new_frame, old_frame, rospy.Time(0))
             pose_stamped = PoseStamped()
-            pose_stamped.header.frame_id = "tag_10"
+            pose_stamped.header.frame_id = old_frame
             pose_stamped.pose.position.x = p[0]
             pose_stamped.pose.position.y = p[1]
             pose_stamped.pose.position.z = p[2]
@@ -265,13 +285,29 @@ class nodeA_navigation:
         Use polar coordinates to easly compute points with a specified distance from the line origin.
         Points are specified in map frame, since it is static, and a point is transformed in base_link when is chosen to place an object
         """
-        distances = [0.1, 0.2, 0.3]  # to modify
+        table_center_map = (self.placing_table_center[0], self.placing_table_center[1], 0)
+        center = self.transform_target_point_to_frame(table_center_map, "map", "tag_10")  # get table center line frame
+
+        x_c = center[0]  # x of table center line frame
+        y_c = center[1] # y of table center line frame
+        margin = 0.1
+
+        x1 = x_c - self.table_side/2
+        x2 = x_c + self.table_side/2 - margin
+        y1 = y_c - self.table_side/2
+        y2 = y_c + self.table_side/2 - margin
+
+        distances = np.arange(0.1, 2, 0.15)  # to modify
         points = []
         a = math.atan(m)
         for r in distances:
             x = r * math.cos(a)
             y = r * math.sin(a) + q
-            points.append((x,y,0))  # z is 0 in the line reference frame
+            if x1 <= x <= x2 and y1 <= y <= y2:  # point inside the table surface
+                points.append((x,y,0))  # z is 0 in the line reference frame
+            else:
+                break  # reached table boundary
+        rospy.loginfo(f"Computed {len(points)} points on placement table")
         return points
 
     def check_target_points_feasibility(self):
@@ -284,8 +320,8 @@ class nodeA_navigation:
         """
         feasibility_distance = 1
 
-        front_point_map = self.transform_target_point_to_frame(self.target_points_line_frame[0], "map")
-        back_point_map = self.transform_target_point_to_frame(self.target_points_line_frame[-1], "map")
+        front_point_map = self.transform_target_point_to_frame(self.target_points_line_frame[0], "tag_10", "map")
+        back_point_map = self.transform_target_point_to_frame(self.target_points_line_frame[-1], "tag_10", "map")
         docking_front = self.docking_points["placing table front"]
         docking_back = self.docking_points["placing table behind"]
 
