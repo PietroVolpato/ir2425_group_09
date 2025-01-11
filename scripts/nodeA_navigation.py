@@ -149,7 +149,17 @@ class nodeA_navigation:
         t = self.docking_points[target_point]  # coordinates of terminal point
         path = []  # oc the path does not include the initial (current) point
 
-        if abs(s[0] - t[0]) < 0.2:  # same horizontal line of target: direct path
+        # same horizontal line of target: direct path
+        if abs(s[0] - t[0]) < 0.2:  
+            path.append(target_point)
+            return path
+        
+        # special case: on the side of picking table
+        if self.current_point == "picking table side":
+            if s[0] < t[0]:  # tiago is on the side an needs to go in frontal region
+                path.append("picking table vert1")
+            else : # tiago in on the side and needs to go in the back ragion
+                path.append("picking table vert2")
             path.append(target_point)
             return path
         
