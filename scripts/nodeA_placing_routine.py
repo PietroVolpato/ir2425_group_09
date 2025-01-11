@@ -94,19 +94,22 @@ class nodeA_placing_routine:
 
             # align the gripper vertically
             self.align_gripper_vertically(target_pose)
+            rospy.loginfo("Arm positioned above the target point")
 
             # open the gripper
             self.open_gripper()
+            rospy.loginfo("Gripper opened")
 
             # detach object from gripper
             self.detach_object_from_gripper()
+            rospy.loginfo("Object detached from gripper")
 
             # notify nodeA_navigation that placing routine is completed
             self.feedback_pub.publish("placing_routine_completed")
         except Exception as e:
             rospy.logerr(f"Error placing object: {str(e)}")
 
-    def align_gripper_vertically(self, target_pose, z_offset = 0.35):
+    def align_gripper_vertically(self, target_pose, z_offset = 0.3):
         """
         This function place the gripper on the following pose:
             - x and y are the same of the target pose

@@ -68,7 +68,7 @@ class nodeC_picking_routine:
         rospy.loginfo("Moving arm to initial configuration")
         
         # Get current state and joint values
-        self.arm_torso_group.set_start_state_to_current_state()
+        # self.arm_torso_group.set_start_state_to_current_state()
         current_joint_values = self.arm_group.get_current_joint_values()
             
         # Define target configuration
@@ -82,7 +82,7 @@ class nodeC_picking_routine:
                 # 'arm_6_joint': current_joint_values[5],
                 # 'arm_7_joint': current_joint_values[6]
                 'torso_lift_joint': 0.35,
-                'arm_1_joint': 0.2,
+                'arm_1_joint': 0.1,
                 'arm_2_joint': 0,
                 'arm_3_joint': current_joint_values[2],
                 'arm_4_joint': 0,
