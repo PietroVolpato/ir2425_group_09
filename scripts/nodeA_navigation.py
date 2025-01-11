@@ -25,7 +25,7 @@ class nodeA_navigation:
         # publish the x,y,z of the placing target point in base link, plus the height of the picked object
         self.placing_routine_pub = rospy.Publisher('/placing_routine', PlacingMessage, queue_size=10) # to move the camera angle
 
-        self.picking_feedback_sub = rospy.Subscriber('/picking_routine_feedback', Int32, self.object_picked_callback)
+        rospy.Subscriber('/picking_routine_feedback', Int32, self.object_picked_callback)
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -173,7 +173,7 @@ class nodeA_navigation:
     
     def object_picked_callback(self, msg):
         """
-        This function is exectured when nodeC_picking_routine has finished, and sent the message with the id of the picked object.
+        This function is exectuted when nodeC_picking_routine has finished, and send the message with the id of the picked object.
         It is then computed the more convenient placing point and tiago is sent to it.
         .... TODO ....
         """

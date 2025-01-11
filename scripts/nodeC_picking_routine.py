@@ -58,9 +58,8 @@ class nodeC_picking_routine:
             9 : "Triangle_9"
         }
         
-        rospy.sleep(15.0)
-
-        self.initial_config()
+        # rospy.sleep(15.0)
+        # self.initial_config()
 
     def initial_config(self):
         """
@@ -74,14 +73,23 @@ class nodeC_picking_routine:
             
         # Define target configuration
         configuration = {
+                # 'torso_lift_joint': 0.35,
+                # 'arm_1_joint': pi / 2,
+                # 'arm_2_joint': 0.5,
+                # 'arm_3_joint': 0.0,
+                # 'arm_4_joint': 0.0,
+                # 'arm_5_joint': current_joint_values[4],
+                # 'arm_6_joint': current_joint_values[5],
+                # 'arm_7_joint': current_joint_values[6]
                 'torso_lift_joint': 0.35,
-                'arm_1_joint': pi / 2,
-                'arm_2_joint': 0.5,
-                'arm_3_joint': 0.0,
-                'arm_4_joint': 0.0,
+                'arm_1_joint': 0.2,
+                'arm_2_joint': 0,
+                'arm_3_joint': current_joint_values[2],
+                'arm_4_joint': 0,
                 'arm_5_joint': current_joint_values[4],
                 'arm_6_joint': current_joint_values[5],
-                'arm_7_joint': current_joint_values[6]}
+                'arm_7_joint': current_joint_values[6]
+                }
             
         # Set target and plan
         self.arm_torso_group.set_joint_value_target(configuration)
@@ -93,6 +101,9 @@ class nodeC_picking_routine:
         """
         Start the manipulation process
         """
+        print("Moving arm to initial configuration")
+        self.initial_config()
+
         target_pose = msg.pose
         target_id = msg.id
 

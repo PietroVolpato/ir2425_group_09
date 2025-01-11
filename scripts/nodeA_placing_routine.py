@@ -1,7 +1,7 @@
 import rospy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Pose
 from moveit_commander import PlanningSceneInterface, MoveGroupCommander
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 import tf2_ros
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 from math import pi
@@ -16,6 +16,8 @@ class nodeA_placing_routine:
         # obtain coordinates of placing point
         rospy.Subscriber('/placing_routine', PlacingMessage, self.placing_routine)
 
+        rospy.Subscriber('/picking_routine_feedback', Int32, self.get_target_id)
+
         # to notify nodeA_navigation outcome of placing routine
         self.feedback_pub = rospy.Publisher('/placing_routine_feedback', String, queue_size=10)
 
@@ -25,8 +27,8 @@ class nodeA_placing_routine:
         #self.nav_client.wait_for_server()
         #rospy.loginfo("Connected to move_base action server.")
 
-        rospy.wait_for_service('/link_attacher_node/attach', timeout=5.0)
-        self.attach_srv = rospy.ServiceProxy('/link_attacher_node/attach', Attach)
+        rospy.wait_for_service('/link_attacher_node/detach', timeout=5.0)
+        self.attach_srv = rospy.ServiceProxy('/link_attacher_node/detach', Attach)
 
         self.scene = PlanningSceneInterface()
 
@@ -36,7 +38,9 @@ class nodeA_placing_routine:
 
         self.arm_torso_group.set_max_velocity_scaling_factor(0.5)
         self.arm_torso_group.set_max_acceleration_scaling_factor(0.5)
-        self.arm_torso_group.set_planning_time(10.0)  
+        self.arm_torso_group.set_planning_time(10.0) 
+
+        self.target_id = None
 
         self.object_list = {1 : 'hexagonal prism', 2: 'hexagonal prism', 3 : 'hexagonal prism',
                             4: 'cube', 5: 'cube', 6 : 'cube',
@@ -67,7 +71,40 @@ class nodeA_placing_routine:
         
         rospy.sleep(1)  # give time planning scene to initialize
         rospy.loginfo(f"starting PLACING ROUTINE. Selected placement point: ({x:.3f},{y:.3f},{z:.3f})")
-        return
+
+        # place the object on the target point
+        self.place_object(x, y, z, object_height)
+
+    def get_target_id(self, msg):
+        """
+        Get the target id of the object to place
+        """
+        self.target_id = msg.data
+
+    def place_object(self, x, y, z, object_height):
+        """
+        Place the object on the target point
+        """
+        try:
+            # move the gripper above the target point
+            target_pose = Pose()
+            target_pose.position.x = x
+            target_pose.position.y = y
+            target_pose.position.z = z
+
+            # align the gripper vertically
+            self.align_gripper_vertically(target_pose)
+
+            # open the gripper
+            self.open_gripper()
+
+            # detach object from gripper
+            self.detach_object_from_gripper()
+
+            # notify nodeA_navigation that placing routine is completed
+            self.feedback_pub.publish("placing_routine_completed")
+        except Exception as e:
+            rospy.logerr(f"Error placing object: {str(e)}")
 
     def align_gripper_vertically(self, target_pose, z_offset = 0.35):
         """
@@ -139,19 +176,31 @@ class nodeA_placing_routine:
         self.gripper_group.stop()
 
         rospy.loginfo("Gripper closed")
-    
-    # there are 2 links of the gripper: tiago::gripper_left_finger_link and tiago::gripper_right_finger_link
-    def attach_object_to_gripper(self, target_id, gripper_link="tiago::gripper_left_finger_link"):  
-        """
-        Attach the target object to the gripper using the Gazebo_ros_link_attacher plugin.
-        """
 
-        model_name = self.model_names[target_id]   # name of the object model in gazebo
-        link_name = f"{model_name}::{model_name}_link"   # name of the link of the object in gazebo
-        print(f"model name: {model_name}")
-        print(f"link name: {link_name}")
+    def open_gripper(self, opening=0.09):
+        """
+        Open the gripper to release the object.
+        """
+        # Define the joint goal to open the gripper
+        joint_goal = self.gripper_group.get_current_joint_values()
+        joint_goal[0] = opening / 2
+        joint_goal[1] = opening / 2
+
+        # Plan and execute the motion
+        self.gripper_group.go(joint_goal, wait=True)
+        self.gripper_group.stop()
+
+        rospy.loginfo("Gripper opened")
+
+    def detach_object_from_gripper(self, gripper_link="tiago::gripper_left_finger_link"):
+        """
+        Detach the target object from the gripper using the Gazebo_ros_link_attacher plugin.
+        """
+        model_name = self.model_names[self.target_id]
+        link_name = f"{model_name}::{model_name}_link"
+    
         try:    
-            # Create the attach request
+            # Create the detach request
             req = AttachRequest()
             req.model_name_1 = "tiago"  # Robot model name
             req.link_name_1 = gripper_link
@@ -160,11 +209,12 @@ class nodeA_placing_routine:
 
             # Call the service
             self.attach_srv.call(req)
+            rospy.loginfo(f"Object {self.target_id} ({model_name}) detached from gripper")
 
         except rospy.ServiceException as e:
-            rospy.logerr(f"Failed to attach object: {str(e)}")
+            rospy.logerr(f"Failed to detach object: {str(e)}")
         except rospy.ROSException as e:
-            rospy.logerr(f"Service call failed: {str(e)}") 
+            rospy.logerr(f"Service call failed: {str(e)}")
 
 if __name__ == '__main__':
     try:
