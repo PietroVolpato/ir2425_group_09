@@ -40,6 +40,8 @@ class nodeA_placing_routine:
         self.arm_torso_group.set_max_acceleration_scaling_factor(0.5)
         self.arm_torso_group.set_planning_time(10.0) 
 
+        self.default_config = self.arm_torso_group.get_current_joint_values()
+
         self.target_id = None
 
         self.object_list = {1 : 'hexagonal prism', 2: 'hexagonal prism', 3 : 'hexagonal prism',
@@ -104,6 +106,12 @@ class nodeA_placing_routine:
             self.detach_object_from_gripper()
             rospy.loginfo("Object detached from gripper")
 
+            # move the arm to the default configuration
+            self.move_to_default_config()
+
+            # remove collision object from planning scene
+            self.remove_collision_object("placement_table")
+
             # notify nodeA_navigation that placing routine is completed
             self.feedback_pub.publish("placing_routine_completed")
         except Exception as e:
@@ -162,21 +170,6 @@ class nodeA_placing_routine:
         # Remove the object by name
         scene.remove_world_object(str(object_name))
         rospy.sleep(1.0) # wait for scene update
-    
-    def close_gripper(self, opening):
-        """
-        Close the gripper to grasp the object.
-        """
-        # Define the joint goal to close the gripper
-        joint_goal = self.gripper_group.get_current_joint_values()
-        #print(f"current joint values: {joint_goal}")
-        # to have 'opening' meters of space between fingers, each finger joint is set to opening/2
-        joint_goal[0] = opening/2  # how wide is left finger joint 
-        joint_goal[1] = opening/2 #  how wide is right finger joint
-
-        # Plan and execute the motion
-        self.gripper_group.go(joint_goal, wait=True)
-        self.gripper_group.stop()
 
         rospy.loginfo("Gripper closed")
 
@@ -218,6 +211,15 @@ class nodeA_placing_routine:
             rospy.logerr(f"Failed to detach object: {str(e)}")
         except rospy.ROSException as e:
             rospy.logerr(f"Service call failed: {str(e)}")
+
+    def move_to_default_config (self):
+        """
+        Move the arm to the default configuration
+        """
+        self.arm_torso_group.go(self.default_config, wait=True)
+        self.arm_torso_group.stop()
+
+        rospy.loginfo("Arm moved to default configuration")
 
 if __name__ == '__main__':
     try:

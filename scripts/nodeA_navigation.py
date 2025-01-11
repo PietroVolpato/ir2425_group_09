@@ -66,8 +66,10 @@ class nodeA_navigation:
         self.picking_table_center = (7.8, -3.0)
         self.table_side = 0.9
 
-        m,q = self.get_coefficients()
-        self.target_points_line_frame = self.compute_target_points(m,q) # points where to place the objects (line reference frame)
+        (m, q) = self.get_coefficients()
+        self.m = m
+        self.q = q
+        self.target_points_line_frame = None
 
         self.counter_placed_objects = 0
 
@@ -188,6 +190,7 @@ class nodeA_navigation:
         """
         picked_object = msg.data
         if picked_object == -1:
+            self.alive_pickup_points.pop(0)  # drop the current docking point
             rospy.loginfo("No desired object detected, moving to next pickup point")
             self.move_to_next_pickup_point()
             return
@@ -201,6 +204,9 @@ class nodeA_navigation:
 
         path = self.find_path_to_point(placing_point)  # find a path to reach the placing table
         self.execute_path(path)  # execute the path
+
+        if self.counter_placed_objects == 0:
+            self.target_points_line_frame = self.compute_target_points(self.m, self.q)  # compute target points on the line
 
         self.check_target_points_feasibility() # preserve feasibility of placement points in self.alive_placement_points
 
@@ -273,7 +279,7 @@ class nodeA_navigation:
 
             m, q = response.coeffs
             rospy.loginfo(f"Received coefficients: m = {m:.4f}, q = {q:.4f}")
-            return m, q
+            return (m, q)
 
         except rospy.ServiceException as e:
             rospy.logerr("Failed to call service /straight_line_srv: %s", str(e))
