@@ -101,22 +101,22 @@ class nodeA_placing_routine:
             self.align_gripper_vertically(target_pose, 0.2 + object_height)
             rospy.loginfo("Object placed on the target point")
 
+            # detach object from gripper
+            self.detach_object_from_gripper()
+
             # open the gripper
             self.open_gripper()
             rospy.loginfo("Gripper opened")
 
-            # detach object from gripper
-            self.detach_object_from_gripper()
-            rospy.loginfo("Object detached from gripper")
-
             self.align_gripper_vertically(target_pose, z_offset)
-            rospy.loginfo("Arm positioned after placing object")
+            rospy.loginfo("PLACING ROUTINE COMPLETED")
 
             # move the arm to the default configuration
             self.move_to_default_config()
 
             # remove collision object from planning scene
             self.remove_collision_object("placement_table")
+            self.remove_collision_object("pickup_table")
 
             # notify nodeA_navigation that placing routine is completed
             self.feedback_pub.publish("placing_routine_completed")
@@ -177,8 +177,6 @@ class nodeA_placing_routine:
         scene.remove_world_object(str(object_name))
         rospy.sleep(1.0) # wait for scene update
 
-        rospy.loginfo("Gripper closed")
-
     def open_gripper(self, opening=0.08):
         """
         Open the gripper to release the object.
@@ -191,8 +189,6 @@ class nodeA_placing_routine:
         # Plan and execute the motion
         self.gripper_group.go(joint_goal, wait=True)
         self.gripper_group.stop()
-
-        rospy.loginfo("Gripper opened")
 
     def detach_object_from_gripper(self, gripper_link="tiago::gripper_left_finger_link"):
         """
