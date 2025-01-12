@@ -24,7 +24,7 @@ class nodeC_planning_scene:
         
         # definition of real object dimensions
         self.objects_dimensions = {
-            "table" : [0.9, 0.9, 0.75],
+            "table" : [0.94, 0.94, 0.75], #[0.9, 0.9, 0.75],
             "cube" : [0.05, 0.05, 0.05],
             "hexagonal prism" : [0.1, 0.025],
             "triangular prism" : [0.07, 0.05, 0.035]
@@ -75,7 +75,7 @@ class nodeC_planning_scene:
                 count_obj += 1
 
         # Add the pickup table to the planning scene interface
-        self.update_table(task)
+        self.update_table("picking")
 
         # Add the placing table to the planning scene interface
         self.update_table("placing")
