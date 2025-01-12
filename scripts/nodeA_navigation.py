@@ -50,9 +50,9 @@ class nodeA_navigation:
             "placing table behind" : (6.8, -2),     # DOCKING point (placement)
             "picking table front" : (8.7, -3),      # DOCKING POINT (pickup)
             "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
-            "picking table side" : (8, -4.1),       # DOCKING point (pickup)
+            "picking table side" : (8, -4),       # DOCKING point (pickup)
             "picking table vert2" : (6.8, -4.1),    # transition point top left vertex
-            "picking table behind" : (6.8, -3)      # DOCKING POINT (pickup)  
+            "picking table behind" : (6.8, -3.1)      # DOCKING POINT (pickup)  
         }
 
         # list of docking points that may contain a desired object
@@ -72,7 +72,7 @@ class nodeA_navigation:
         (m, q) = self.get_coefficients()
         self.m = m
         self.q = q
-        self.target_points_line_frame = None
+        self.target_points_map_frame = None
 
         self.counter_placed_objects = 0
 
@@ -90,7 +90,7 @@ class nodeA_navigation:
         # Calculate rotation duration 
         rotation_duration = angle / abs(rotate_cmd.angular.z) 
 
-        rate = rospy.Rate(10)  
+        rate = rospy.Rate(50)  
         start_time = rospy.Time.now()
     
         while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
@@ -166,47 +166,39 @@ class nodeA_navigation:
 
         goal.target_pose.pose.orientation.w = math.cos(theta/2)
         goal.target_pose.pose.orientation.z = math.sin(theta/2)
-        #rospy.loginfo(f"Sending goal: {target}")
-        print(f"Sending goal: {target}")
-
-        # if self.current_point == "picking table behind":
-        #     if target == "placing table behind":
-        #         self.rotation(math.pi / 2, 1)
-        #     elif target == "picking table vert2":
-        #         self.rotation(math.pi / 2, -1)
-
-        # if self.current_point == "placing table behind":
-        #     self.rotation(math.pi / 2, -1)
+        #print(f"Sending goal: {target}")
         use_move_base = True
+
+        ang_speed = 0.6
         if self.current_point == "picking table vert2":
             if target == "picking table behind":
-                self.rotation(math.pi * 0.52, -1)
+                self.rotation(math.pi * 0.538, -ang_speed)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi / 2, -ang_speed)
             elif target == "placing table behind":
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi * 0.538, -ang_speed)
                 self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi / 2, -ang_speed)
             use_move_base = False
         elif self.current_point == "picking table behind":
             if target == "picking table vert2":
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi / 2, -ang_speed)
                 self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["picking table behind"][1]))
-                self.rotation(math.pi / 2, 1)
+                self.rotation(math.pi / 2, ang_speed)
             elif target == "placing table behind":
-                self.rotation(math.pi / 2, 1)
+                self.rotation(math.pi / 2, ang_speed)
                 self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table behind"][1]))
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi / 2, -ang_speed)
             use_move_base = False
         elif self.current_point == "placing table behind":
             if target == "picking table vert2":
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi * 0.506, -ang_speed)
                 self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["placing table behind"][1]))
-                self.rotation(math.pi / 2, 1)
+                self.rotation(math.pi / 2, ang_speed)
             elif target == "picking table behind":
-                self.rotation(math.pi / 2, -1)
+                self.rotation(math.pi * 0.506, -ang_speed)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
-                self.rotation(math.pi / 2, 1)
+                self.rotation(math.pi / 2, ang_speed)
             use_move_base = False
 
         if use_move_base == True:
@@ -217,12 +209,12 @@ class nodeA_navigation:
         if result == actionlib.GoalStatus.SUCCEEDED or not use_move_base: 
 
             if target in self.alive_pickup_points:  # reached pickup point
-                rospy.sleep(0.2)  # wait a little bit to stabilize detections
+                rospy.sleep(0.3)  # wait a little bit to stabilize detections
                 rospy.loginfo(f"Reached PICKUP POINT {target}")
                 self.detections_cmd.publish(String(data="picking"))  # tell nodeB to provide the detections to create collision objects
             
             if target in self.alive_placement_points:
-                rospy.sleep(0.2)  # wait a little bit to stabilize detections
+                rospy.sleep(0.3)  # wait a little bit to stabilize detections
                 rospy.loginfo(f"Reached PLACEMENT POINT {target}")
                 self.detections_cmd.publish(String(data="placing"))  # tell nodeB to provide the detections to create collision objects
         else:
@@ -314,20 +306,20 @@ class nodeA_navigation:
         self.execute_path(path)  # execute the path
 
         if self.counter_placed_objects == 0:
-            self.target_points_line_frame = self.compute_target_points(self.m, self.q)  # compute target points on the line
+            self.target_points_map_frame = self.compute_target_points(self.m, self.q)  # compute target points on the line
 
         self.check_target_points_feasibility() # preserve feasibility of placement points in self.alive_placement_points
 
         # choose the target point closest to the selected docking placement point
-        selected_point = self.target_points_line_frame[0] if placing_point == "placing table front" else self.target_points_line_frame[-1]
+        selected_point = self.target_points_map_frame.pop(0) if placing_point == "placing table front" else self.target_points_map_frame.pop()
 
-        target_point = self.transform_target_point_to_frame(selected_point, "tag_10", "base_link")
+        x,y,z = self.transform_point_to_frame(selected_point, "map", "base_link")
 
         placing_msg = PlacingMessage()
         # x,y,z of the placing point in base link
-        placing_msg.x = target_point[0]
-        placing_msg.y = target_point[1]
-        placing_msg.z = target_point[2]
+        placing_msg.x = x
+        placing_msg.y = y
+        placing_msg.z = z
         placing_msg.object_height = self.object_heights[picked_object] # height of the picked object
 
         self.placing_routine_pub.publish(placing_msg) # start the placing routine
@@ -346,10 +338,13 @@ class nodeA_navigation:
         self.alive_pickup_points. Such point has a possibility to contain a target object.
         The path from current position to such point is computed using find_path_to_point(), and executed using execute_path()
         """
+        if self.alive_pickup_points == []:
+            rospy.loginfo("ALL DOCKING POINTS VISITED, all detected targets are placed.")
+            return
         path = self.find_path_to_point(self.alive_pickup_points[0])  # move to the first 'alive' docking point (may contain targets)
         self.execute_path(path)
 
-    def transform_target_point_to_frame(self, p, old_frame, new_frame):
+    def transform_point_to_frame(self, p, old_frame, new_frame):
         try:
     
             transform = self.tf_buffer.lookup_transform(new_frame, old_frame, rospy.Time(0))
@@ -368,7 +363,7 @@ class nodeA_navigation:
             x = transformed_pose.pose.position.x
             y = transformed_pose.pose.position.y
             z = transformed_pose.pose.position.z
-            return (x,y,z)  # return the coordinates of the point in base link frame
+            return x,y,z  # return the coordinates of the point in base link frame
 
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
             rospy.logerr(f"Transform error while updating table: {e}")
@@ -397,28 +392,27 @@ class nodeA_navigation:
         """
         given the line's m and q (slope and intercept), computes points on the line equation and on the table at a proper distance between each other.
         Use polar coordinates to easly compute points with a specified distance from the line origin.
-        Points are specified in map frame, since it is static, and a point is transformed in base_link when is chosen to place an object
+        Points are specified in map frame, since it is static, and a point will be transformed in base_link when is chosen to place an object.
         """
         table_center_map = (self.placing_table_center[0], self.placing_table_center[1], 0)
-        center = self.transform_target_point_to_frame(table_center_map, "map", "tag_10")  # get table center line frame
+        x_c, y_c, z_c = self.transform_point_to_frame(table_center_map, "map", "tag_10")  # get table center line frame
 
-        x_c = center[0]  # x of table center line frame
-        y_c = center[1] # y of table center line frame
-        margin = 0.1
+        margin = 0.08
 
         x1 = x_c - self.table_side/2
         x2 = x_c + self.table_side/2 - margin
         y1 = y_c - self.table_side/2
         y2 = y_c + self.table_side/2 - margin
 
-        distances = np.arange(0, 2, 0.12)  # to modify
+        distances = np.arange(0, 2, 0.10)  # to modify
         points = []
         a = math.atan(m)
         for r in distances:
             x = r * math.cos(a)
             y = r * math.sin(a) + q
             if x1 <= x <= x2 and y1 <= y <= y2:  # point inside the table surface
-                points.append((x,y,0))  # z is 0 in the line reference frame
+                x_p, y_p, z_p = self.transform_point_to_frame((x,y,0), "tag_10", "map")  # transform point to map frame, which is always available
+                points.append((x_p, y_p, z_p))  # z is 0 in the line reference frame
             else:
                 break  # reached table boundary
         rospy.loginfo(f"Computed {len(points)} points on placement table")
@@ -429,23 +423,19 @@ class nodeA_navigation:
         This function check the list of available target placing points on the line.
         If the distance between the docking point 'placing table behind' and its closest target point (is always the last) is too large,
         then it is infeasible to place an object from behind the table, and placing table behind is dropped from the list self.alive_placement_points.
-        The same check is applied to the docking point 'placing table front'.
         The meaning of this function is to preserve placing feasibility of the docking placement points in self.alive_placement_points.
         """
-        feasibility_distance = 1
 
-        front_point_map = self.transform_target_point_to_frame(self.target_points_line_frame[0], "tag_10", "map")
-        back_point_map = self.transform_target_point_to_frame(self.target_points_line_frame[-1], "tag_10", "map")
-        docking_front = self.docking_points["placing table front"]
+        if "placing table behind" not in self.alive_placement_points:  # placement point already dropped
+            return
+        
+        feasibility_distance = 0.9
+
+        x_last_point = self.target_points_map_frame[-1][0]
+        y_last_point = self.target_points_map_frame[-1][1]
         docking_back = self.docking_points["placing table behind"]
 
-        # check that planar distance is not too large
-        if math.sqrt((front_point_map[0]-docking_front[0])**2 + (front_point_map[1]-docking_front[1])**2) > feasibility_distance:
-            self.alive_placement_points.pop(0)  # drop the unfeasible docking point
-            rospy.loginfo("REMOVED placement docking point in front of the table (unfeasible to reach a target point from there)")
-        
-        # check that planar distance is not too large
-        if math.sqrt((back_point_map[0]-docking_back[0])**2 + (back_point_map[1]-docking_back[1])**2) > feasibility_distance:
+        if math.sqrt((x_last_point-docking_back[0])**2 + (y_last_point-docking_back[1])**2) > feasibility_distance:
             self.alive_placement_points.pop(1)  # drop the unfeasible docking point
             rospy.loginfo("REMOVED placement docking point on the back of the table (unfeasible to reach a target point from there)")
         return
