@@ -172,11 +172,11 @@ class nodeA_navigation:
         ang_speed = 0.6
         if self.current_point == "picking table vert2":
             if target == "picking table behind":
-                self.rotation(math.pi * 0.538, -ang_speed)
+                self.rotation(math.pi * 0.555, -ang_speed)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
                 self.rotation(math.pi / 2, -ang_speed)
             elif target == "placing table behind":
-                self.rotation(math.pi * 0.538, -ang_speed)
+                self.rotation(math.pi * 0.555, -ang_speed)
                 self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
                 self.rotation(math.pi / 2, -ang_speed)
             use_move_base = False
