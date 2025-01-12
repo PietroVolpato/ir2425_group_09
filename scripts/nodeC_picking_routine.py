@@ -44,6 +44,12 @@ class nodeC_picking_routine:
         self.object_list = {1 : 'hexagonal prism', 2: 'hexagonal prism', 3 : 'hexagonal prism',
                             4: 'cube', 5: 'cube', 6 : 'cube',
                             7: 'triangular prism', 8 : 'triangular prism', 9 : 'triangular prism'}
+        
+        self. gripper_length = 0.22
+
+        self.object_heights = { 1 : 0.1, 2 : 0.1, 3 : 0.1,
+                                4 : 0.05, 5 : 0.05, 6 : 0.05,
+                                7 : 0.035, 8 : 0.035, 9 : 0.035}
 
         # map from object ids to model names in gazebo 
         self.model_names = {
@@ -59,7 +65,7 @@ class nodeC_picking_routine:
         }
         
         # rospy.sleep(15.0)
-        # self.initial_config()
+        self.initial_config()
 
     def initial_config(self):
         """
@@ -81,11 +87,19 @@ class nodeC_picking_routine:
                 # 'arm_5_joint': current_joint_values[4],
                 # 'arm_6_joint': current_joint_values[5],
                 # 'arm_7_joint': current_joint_values[6]
+                # 'torso_lift_joint': 0.35,
+                # 'arm_1_joint': 0.1,
+                # 'arm_2_joint': 0,
+                # 'arm_3_joint': current_joint_values[2],
+                # 'arm_4_joint': 0,
+                # 'arm_5_joint': current_joint_values[4],
+                # 'arm_6_joint': current_joint_values[5],
+                # 'arm_7_joint': current_joint_values[6]
                 'torso_lift_joint': 0.35,
-                'arm_1_joint': 0.1,
-                'arm_2_joint': 0,
+                'arm_1_joint': current_joint_values[0],
+                'arm_2_joint': current_joint_values[1],
                 'arm_3_joint': current_joint_values[2],
-                'arm_4_joint': 0,
+                'arm_4_joint': current_joint_values[3],
                 'arm_5_joint': current_joint_values[4],
                 'arm_6_joint': current_joint_values[5],
                 'arm_7_joint': current_joint_values[6]
@@ -107,14 +121,13 @@ class nodeC_picking_routine:
         target_pose = msg.pose
         target_id = msg.id
 
-        z_above_object = 0.3
-        gripper_space = 0.075
-        z_on_object = 0.2
+        z_above_object = 0.3  # z offset of the position of the arm above the object
+        z_on_object = self.gripper_length - self.object_heights[target_id]/2  # place the gripper about on half height of the object
 
         rospy.sleep(1)  # give time planning scene to initialize
         rospy.loginfo(f"Starting PICKING ROUTINE. Target is obj {target_id} ({self.object_list[target_id]})")
         
-
+        self.intermediate_pose()  # intermediate pose to raise the arm
         self.align_gripper_vertically(target_pose, z_offset = z_above_object) # place arm 35cm above object
         rospy.loginfo(f"Arm positioned above the target object")
 
@@ -125,14 +138,14 @@ class nodeC_picking_routine:
         self.remove_collision_object(target_id)
         rospy.loginfo(f"Removed collision object of the target object ({target_id})")
 
-        self.close_gripper(gripper_space)
+        self.close_gripper_until_contact()
         rospy.loginfo(f"Gripper closed")
 
         self.attach_object_to_gripper(target_id)
         rospy.loginfo(f"Attached object {target_id} ({self.model_names[target_id]}) to the gripper.")
 
         self.align_gripper_vertically(target_pose, z_above_object)  # lift object
-        rospy.loginfo(f"Object lifted, ready to move to placing table")
+        rospy.loginfo(f"Object lifted, PICKUP ROUTINE COMPLETED")
 
         self.remove_all_objects()
 
@@ -192,20 +205,52 @@ class nodeC_picking_routine:
         scene.remove_world_object(str(object_name))
         rospy.sleep(1.0) # wait for scene update
     
-    def close_gripper(self, opening):
+    def close_gripper_until_contact(self):
         """
-        Close the gripper to grasp the object.
+        Close the gripper fingers until they make contact with the object, accounting for asymmetry.
         """
-        # Define the joint goal to close the gripper
+        # Get the current joint values
         joint_goal = self.gripper_group.get_current_joint_values()
-        #print(f"current joint values: {joint_goal}")
-        # to have 'opening' meters of space between fingers, each finger joint is set to opening/2
-        joint_goal[0] = opening/2  # how wide is left finger joint 
-        joint_goal[1] = opening/2 #  how wide is right finger joint
 
-        # Plan and execute the motion
-        self.gripper_group.go(joint_goal, wait=True)
-        self.gripper_group.stop()
+        # Define the minimum allowed opening for the gripper
+        min_opening = 0.02  # almost fully closed
+        closing_step = 0.005  # Increment per step
+        max_closing_attempts = 50  # Maximum number of steps to close the gripper
+
+        for attempt in range(max_closing_attempts):
+            try:
+                # Check current joint positions for both fingers
+                current_joints = self.gripper_group.get_current_joint_values()
+                left_finger_joint = current_joints[0]
+                right_finger_joint = current_joints[1]
+
+                # Gradually reduce joint values for both fingers
+                if left_finger_joint > min_opening:
+                    joint_goal[0] -= closing_step / 2  # Left finger
+                    joint_goal[0] = max(joint_goal[0], min_opening)
+
+                if right_finger_joint > min_opening:
+                    joint_goal[1] -= closing_step / 2  # Right finger
+                    joint_goal[1] = max(joint_goal[1], min_opening)
+
+                # Plan and execute the motion
+                success = self.gripper_group.go(joint_goal, wait=True)
+                self.gripper_group.stop()
+
+                if not success:
+                    rospy.logwarn(f"Failed to move the gripper on attempt {attempt}. Stopping.")
+                    break
+
+                # Check if either finger has stopped moving, indicating contact
+                updated_joints = self.gripper_group.get_current_joint_values()
+                if abs(updated_joints[0] - left_finger_joint) < closing_step / 4 and abs(updated_joints[1] - right_finger_joint) < closing_step / 4:
+                    rospy.loginfo("Gripper fingers stopped moving; assumed object contact.")
+                    break
+
+            except Exception as e:
+                rospy.logerr(f"Error during gripper closing: {str(e)}")
+                break
+
 
     
     # there are 2 links of the gripper: tiago::gripper_left_finger_link and tiago::gripper_right_finger_link
@@ -234,11 +279,11 @@ class nodeC_picking_routine:
         except rospy.ROSException as e:
             rospy.logerr(f"Service call failed: {str(e)}")
     
-    def move_to_default_config (self):
+    def intermediate_pose(self):
         """
         Move the arm to the default configuration
         """
-        configuration_1 = {
+        configuration = {
                 'torso_lift_joint': 0.35,
                 'arm_1_joint': 0.1,
                 'arm_2_joint': 0,
@@ -248,23 +293,9 @@ class nodeC_picking_routine:
                 'arm_6_joint': 1.370,
                 'arm_7_joint': 0
         }
-        configuration_2 = {
-                'torso_lift_joint': 0.35,
-                'arm_1_joint': 0.2,
-                'arm_2_joint': -1.3,
-                'arm_3_joint': -0.2,
-                'arm_4_joint': 1.94,
-                'arm_5_joint': -1.57,
-                'arm_6_joint': 1.368,
-                'arm_7_joint': 0
-                }
         
         try:
-            self.arm_torso_group.set_joint_value_target(configuration_1)
-            self.arm_torso_group.go(wait=True)
-            self.arm_torso_group.stop()
-
-            self.arm_torso_group.set_joint_value_target(configuration_2)
+            self.arm_torso_group.set_joint_value_target(configuration)
             self.arm_torso_group.go(wait=True)
             self.arm_torso_group.stop()
 
