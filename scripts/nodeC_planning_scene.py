@@ -6,6 +6,7 @@ from shape_msgs.msg import SolidPrimitive
 from ir2425_group_09.msg import Detections
 import tf2_ros
 from tf2_geometry_msgs import do_transform_pose
+from std_msgs.msg import String
 
 class nodeC_planning_scene:
     def __init__ (self):
@@ -14,6 +15,7 @@ class nodeC_planning_scene:
         self.initial_time = rospy.Time.now()
         # Subscribe to the detected_objects topic
         rospy.Subscriber('/detected_objects', Detections, self.detection_callback)
+        rospy.Subscriber('table_co', String, self.table_callback)
 
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer)
@@ -23,12 +25,14 @@ class nodeC_planning_scene:
         self.scene = PlanningSceneInterface() # you don't need to publish it, handled automatically
         
         # definition of real object dimensions
-        scale_factor = 1.05
+        scale_factor_table = 1.08
+        scale_factor_obj = 1.05
         self.objects_dimensions = {
-            "table" : [0.9 * scale_factor, 0.9 * scale_factor, 0.75 * scale_factor],
-            "cube" : [0.05 * scale_factor, 0.05 * scale_factor, 0.05 * scale_factor],
-            "hexagonal prism" : [0.1 * scale_factor, 0.025 * scale_factor],
-            "triangular prism" : [0.07 * scale_factor, 0.05 * scale_factor, 0.035 * scale_factor]
+            "pickup_table" : [0.9 * scale_factor_table, 0.9 * scale_factor_table, 0.78 * scale_factor_table],
+            "placement_table" : [0.9 * scale_factor_table, 0.95 * scale_factor_table, 0.78 * scale_factor_table],
+            "cube" : [0.05 * scale_factor_obj, 0.05 * scale_factor_obj, 0.05 * scale_factor_obj],
+            "hexagonal prism" : [0.1 * scale_factor_obj, 0.025 * scale_factor_obj],
+            "triangular prism" : [0.07, 0.05, 0.035]
         }
 
         self.current_objects = []
@@ -47,10 +51,17 @@ class nodeC_planning_scene:
         table_pose.pose.position.x = self.table_positions[index][0]
         table_pose.pose.position.y = self.table_positions[index][1]
 
-        table_pose.pose.position.z = self.objects_dimensions["table"][2]/2 
+        table_pose.pose.position.z = self.objects_dimensions["pickup_table"][2]/2 
         table_pose.pose.orientation.w = 1.0
 
         return table_pose
+    
+    def table_callback(self, msg):
+        """
+        Callback for the table position
+        """
+        table_type = msg.data
+        self.update_table(table_type)
 
     def detection_callback(self, msg):
         """
@@ -102,7 +113,7 @@ class nodeC_planning_scene:
             # Define the table's shape and dimensions
             table_shape = SolidPrimitive()
             table_shape.type = SolidPrimitive.BOX
-            table_shape.dimensions = self.objects_dimensions["table"]  # [x, y, z] dimensions of the table
+            table_shape.dimensions = self.objects_dimensions[object_name]  # [x, y, z] dimensions of the table
             table_collision_object.primitives.append(table_shape)
 
             # Get and transform the table pose

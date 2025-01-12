@@ -8,6 +8,7 @@ from math import pi
 from tf.transformations import quaternion_from_euler
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 from ir2425_group_09.msg import PlacingMessage  # custom message
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 class nodeA_placing_routine:
     def __init__ (self):
@@ -18,14 +19,10 @@ class nodeA_placing_routine:
 
         rospy.Subscriber('/picking_routine_feedback', Int32, self.get_target_id)
 
+        self.table_pub = rospy.Publisher('/table_co', String, queue_size=10)
+
         # to notify nodeA_navigation outcome of placing routine
         self.feedback_pub = rospy.Publisher('/placing_routine_feedback', String, queue_size=10)
-
-        # Initialize actionlib client
-        #self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
-        #rospy.loginfo("Waiting for move_base action server...")
-        #self.nav_client.wait_for_server()
-        #rospy.loginfo("Connected to move_base action server.")
 
         rospy.wait_for_service('/link_attacher_node/detach', timeout=5.0)
         self.attach_srv = rospy.ServiceProxy('/link_attacher_node/detach', Attach)
@@ -96,9 +93,14 @@ class nodeA_placing_routine:
             z_offset = 0.3 + object_height / 2
             z_on_object = self.gripper_lenght + object_height / 2  # place the gripper about on half height of the object
 
+            self.intermediate_pose()
+
             # align the gripper vertically
             self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("Arm positioned above the target point")
+
+            # remove the collision object of the table
+            self.remove_collision_object("placement_table")
 
             self.align_gripper_vertically(target_pose, z_on_object)
             rospy.loginfo("Object placed on the target point")
@@ -106,8 +108,6 @@ class nodeA_placing_routine:
             # open the gripper
             self.open_gripper()
             rospy.loginfo("Gripper opened")
-
-            # rospy.sleep(0.2)
 
             # detach object from gripper
             self.detach_object_from_gripper()
@@ -117,8 +117,11 @@ class nodeA_placing_routine:
             self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("PLACING ROUTINE COMPLETED")
 
+            # re create the collision object of the table
+            self.table_pub.publish("placing")
+
             # move the arm to the default configuration
-            self.move_to_default_config()
+            self.move_to_safe_configuration()
 
             # remove collision object from planning scene
             self.remove_collision_object("placement_table")
@@ -170,7 +173,8 @@ class nodeA_placing_routine:
         except Exception as e:
             raise Exception(f"Error moving arm: {str(e)}")
 
-    def remove_collision_object(self, object_name):
+    @staticmethod
+    def remove_collision_object(object_name):
         """
         Remove a collision object from the planning scene.
 
@@ -220,20 +224,12 @@ class nodeA_placing_routine:
         except rospy.ROSException as e:
             rospy.logerr(f"Service call failed: {str(e)}")
 
-    def move_to_default_config (self):
+    def move_to_safe_configuration (self):
         """
         Move the arm to the default configuration
         """
-        configuration_1 = {
-                'torso_lift_joint': 0.35,
-                'arm_1_joint': 0.1,
-                'arm_2_joint': 0,
-                'arm_3_joint': -0.2,
-                'arm_4_joint': 0,
-                'arm_5_joint': -1.57,
-                'arm_6_joint': 1.370,
-                'arm_7_joint': 0
-        }
+        self.intermediate_pose()
+
         configuration_2 = {
                 'torso_lift_joint': 0.35,
                 'arm_1_joint': 0.2,
@@ -244,20 +240,39 @@ class nodeA_placing_routine:
                 'arm_6_joint': 1.368,
                 'arm_7_joint': 0
                 }
-        
         try:
-            self.arm_torso_group.set_joint_value_target(configuration_1)
+            self.arm_torso_group.set_joint_value_target(configuration_2)
             self.arm_torso_group.go(wait=True)
             self.arm_torso_group.stop()
+        except Exception as e:
+            rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
-            self.arm_torso_group.set_joint_value_target(configuration_2)
+        rospy.loginfo("Arm moved to default configuration")
+
+    def intermediate_pose(self):
+        """
+        Move the arm to the default configuration
+        """
+        configuration = {
+                'torso_lift_joint': 0.35,
+                'arm_1_joint': 0.1,
+                'arm_2_joint': 0,
+                'arm_3_joint': -0.2,
+                'arm_4_joint': 0,
+                'arm_5_joint': -1.57,
+                'arm_6_joint': 0,
+                'arm_7_joint': 0
+        }
+        
+        try:
+            self.arm_torso_group.set_joint_value_target(configuration)
             self.arm_torso_group.go(wait=True)
             self.arm_torso_group.stop()
 
         except Exception as e:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
-        rospy.loginfo("Arm moved to default configuration")
+        rospy.loginfo("Arm moved to default configuration")  
 
 if __name__ == '__main__':
     try:

@@ -32,7 +32,7 @@ class nodeA_navigation:
 
         self.picking_feedback_sub = rospy.Subscriber('/placing_routine_feedback', String, self.object_placed_callback)
 
-        rospy.Subscriber('/odom', Odometry, self.odom_callback)
+        rospy.Subscriber('/mobile_base_controller/odom', Odometry, self.odom_callback)
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -50,7 +50,7 @@ class nodeA_navigation:
         # Define static docking points + transition points
         self.docking_points = {
             "corridor exit": (8.7, 0),              # transition point
-            "placing table front" : (8.6, -2),      # DOCKING point (placement)
+            "placing table front" : (8.67, -2),      # DOCKING point (placement)
             "placing table behind" : (6.85, -2),     # DOCKING point (placement)
             "picking table front" : (8.7, -3),      # DOCKING POINT (pickup)
             "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
@@ -81,14 +81,15 @@ class nodeA_navigation:
         self.counter_placed_objects = 0
 
         self.current_yaw = 0.0
-        self.yaw_tolerance = 0.1  
+        self.yaw_tolerance = 0.01 
 
     def rotate_to_yaw(self, target_yaw):
         """
         Ruota Tiago fino a raggiungere l'angolo specificato.
         :param target_yaw: Angolo desiderato in radianti.
         """
-        rate = rospy.Rate(10)  # Frequenza di pubblicazione (10 Hz)
+        rate = rospy.Rate(50)  # Frequenza di pubblicazione (10 Hz)
+        
 
         while not rospy.is_shutdown():
             # Calcola l'errore angolare
@@ -101,8 +102,12 @@ class nodeA_navigation:
                 break 
 
             # Calcola velocità angolare proporzionale
-            angular_speed = 0.5 * yaw_error  # Guadagno proporzionale
-            angular_speed = max(min(angular_speed, 1.0), -1.0)  # Limita velocità
+            angular_speed = 1 if yaw_error > math.pi / 9 else 0.3
+            # angular_speed = max(min(angular_speed, 1.0), -1.0)  # Limita velocità
+
+            if yaw_error > math.pi:
+                angular_speed = -angular_speed
+
 
             # Pubblica il comando di rotazione
             twist_msg = Twist()
@@ -219,7 +224,7 @@ class nodeA_navigation:
         elif target == "placing table behind":
             theta = 0  # look behind
         elif target == "picking table vert1" :
-            if self.current_point == "picking table vert2" and self.current_point == "picking table side":
+            if self.current_point == "picking table vert2" or self.current_point == "picking table side":
                 theta = math.pi / 2
             else:
                 theta = -math.pi / 2
@@ -269,13 +274,42 @@ class nodeA_navigation:
             if target == "picking table behind":
                 self.rotate_to_yaw(math.pi / 2)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
-                self.rotate_to_yaw(0)
+                self.rotate_to_yaw(math.radians(5))
             elif target == "placing table behind":
                 self.rotate_to_yaw(math.pi / 2)
                 self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
                 self.rotate_to_yaw(0)
             use_move_base = False
+        elif self.current_point == "picking table behind":
+            if target == "picking table vert2":
+                self.rotate_to_yaw(-math.pi / 2)
+                self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["picking table behind"][1]))
+                self.rotate_to_yaw(0)
+            elif target == "placing table behind":
+                self.rotate_to_yaw(math.pi / 2)
+                self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table behind"][1]))
+                self.rotate_to_yaw(0)
+            use_move_base = False
+        elif self.current_point == "placing table behind":
+            if target == "picking table vert2":
+                self.rotate_to_yaw(-math.pi / 2)
+                self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["placing table behind"][1]))
+                self.rotate_to_yaw(0)
+            elif target == "picking table behind":
+                self.rotate_to_yaw(-math.pi / 2)
+                self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
+                self.rotate_to_yaw(math.radians(5))
+            use_move_base = False
+        elif self.current_point == "placing table front":
+            if target == "picking table vert1":
+                self.rotate_to_yaw(-math.pi / 2)
+                use_move_base = True
+        elif self.current_point == "picking table side":
+            if target == "picking table vert1":
+                self.rotate_to_yaw(0)
+                use_move_base = True
 
+        print(f"Use move base: {use_move_base}")
 
         if use_move_base == True:
             self.nav_client.send_goal(goal)
@@ -293,10 +327,10 @@ class nodeA_navigation:
                 rospy.sleep(0.3)  # wait a little bit to stabilize detections
                 rospy.loginfo(f"Reached PLACEMENT POINT {target}")
                 self.detections_cmd.publish(String(data="placing"))  # tell nodeB to provide the detections to create collision objects
+
+            self.current_point = target
         else:
             rospy.logerr("Navigation FAILED with status: %s", result)
-
-        self.current_point = target  
 
     def find_path_to_point(self, target_point):
         """
@@ -480,7 +514,7 @@ class nodeA_navigation:
         y1 = y_c - self.table_side/2
         y2 = y_c + self.table_side/2 - margin
 
-        distances = np.arange(0, 2, 0.10)  # to modify
+        distances = np.arange(0, 2, 0.15)  # to modify
         points = []
         a = math.atan(m)
         for r in distances:

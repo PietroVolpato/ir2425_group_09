@@ -21,6 +21,8 @@ class nodeC_picking_routine:
 
         self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10) # to move the camera angle
 
+        self.table_pub = rospy.Publisher('/table_co', String, queue_size=10) 
+
         # Initialize actionlib client
         #self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
         #rospy.loginfo("Waiting for move_base action server...")
@@ -101,7 +103,10 @@ class nodeC_picking_routine:
         target_id = msg.id
 
         z_above_object = 0.3  # z offset of the position of the arm above the object
-        z_on_object = self.gripper_length - self.object_heights[target_id]/2  # place the gripper about on half height of the object
+        if target_id in [1, 2, 3, 4, 5, 6]:
+            z_on_object = self.gripper_length - self.object_heights[target_id] / 2
+        else:
+            z_on_object = self.gripper_length #- self.object_heights[target_id] / 3  # place the gripper about on half height of the object
 
         rospy.sleep(1)  # give time planning scene to initialize
         rospy.loginfo(f"Starting PICKING ROUTINE. Target is obj {target_id} ({self.object_list[target_id]})")
@@ -109,6 +114,9 @@ class nodeC_picking_routine:
         self.intermediate_pose()  # intermediate pose to raise the arm
         self.align_gripper_vertically(target_pose, z_offset = z_above_object) # place arm 35cm above object
         rospy.loginfo(f"Arm positioned above the target object")
+
+        # Remove the collision object of the picking table
+        self.remove_collision_object("pickup_table")
 
         # grasp pose 20 cm above target because the frame is above the gripper fingers, which are long slightly less than 0.2
         self.align_gripper_vertically(target_pose, z_offset = z_on_object) # gripper surrounds the object
@@ -125,6 +133,12 @@ class nodeC_picking_routine:
 
         self.align_gripper_vertically(target_pose, z_above_object)  # lift object
         rospy.loginfo(f"Object lifted, PICKUP ROUTINE COMPLETED")
+
+        # Re create the collision object of the picking table
+        self.table_pub.publish(String(data="picking"))  # publish the table position for the planning scene
+
+        self.move_to_safe_configuration()
+        rospy.loginfo("Arm moved to safe configuration")
 
         self.remove_all_objects()
 
@@ -229,9 +243,7 @@ class nodeC_picking_routine:
             except Exception as e:
                 rospy.logerr(f"Error during gripper closing: {str(e)}")
                 break
-
-
-    
+  
     # there are 2 links of the gripper: tiago::gripper_left_finger_link and tiago::gripper_right_finger_link
     def attach_object_to_gripper(self, target_id, gripper_link="tiago::gripper_left_finger_link"):  
         """
@@ -269,7 +281,7 @@ class nodeC_picking_routine:
                 'arm_3_joint': -0.2,
                 'arm_4_joint': 0,
                 'arm_5_joint': -1.57,
-                'arm_6_joint': 1.370,
+                'arm_6_joint': 0,
                 'arm_7_joint': 0
         }
         
@@ -281,7 +293,33 @@ class nodeC_picking_routine:
         except Exception as e:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
-        rospy.loginfo("Arm moved to default configuration")     
+        rospy.loginfo("Arm moved to default configuration")  
+
+    def move_to_safe_configuration(self):
+        """
+        Move the arm to the default configuration
+        """
+        self.intermediate_pose()
+
+        configuration_2 = {
+                'torso_lift_joint': 0.35,
+                'arm_1_joint': 0.2,
+                'arm_2_joint': -1.3,
+                'arm_3_joint': -0.2,
+                'arm_4_joint': 1.94,
+                'arm_5_joint': -1.57,
+                'arm_6_joint': 1.368,
+                'arm_7_joint': 0
+                }
+        try:
+            self.arm_torso_group.set_joint_value_target(configuration_2)
+            self.arm_torso_group.go(wait=True)
+            self.arm_torso_group.stop()
+
+        except Exception as e:
+            rospy.logerr(f"Failed to move arm to default configuration: {e}")
+
+        rospy.loginfo("Arm moved to default configuration")   
 
     def remove_all_objects(self):
         """
