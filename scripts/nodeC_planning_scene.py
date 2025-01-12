@@ -23,11 +23,12 @@ class nodeC_planning_scene:
         self.scene = PlanningSceneInterface() # you don't need to publish it, handled automatically
         
         # definition of real object dimensions
+        scale_factor = 1.05
         self.objects_dimensions = {
-            "table" : [0.94, 0.94, 0.75], #[0.9, 0.9, 0.75],
-            "cube" : [0.05, 0.05, 0.05],
-            "hexagonal prism" : [0.1, 0.025],
-            "triangular prism" : [0.07, 0.05, 0.035]
+            "table" : [0.9 * scale_factor, 0.9 * scale_factor, 0.75 * scale_factor],
+            "cube" : [0.05 * scale_factor, 0.05 * scale_factor, 0.05 * scale_factor],
+            "hexagonal prism" : [0.1 * scale_factor, 0.025 * scale_factor],
+            "triangular prism" : [0.07 * scale_factor, 0.05 * scale_factor, 0.035 * scale_factor]
         }
 
         self.current_objects = []

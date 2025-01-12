@@ -9,6 +9,7 @@ from math import pi
 from tf.transformations import quaternion_from_euler
 from ir2425_group_09.msg import TargetObject  # custom message
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 class nodeC_picking_routine:
     def __init__ (self):
@@ -16,6 +17,7 @@ class nodeC_picking_routine:
 
         # Subscribe to the nav_goal topic
         rospy.Subscriber('/picking_routine', TargetObject, self.picking_routine)
+        self.torso_pub = rospy.Publisher('/torso_controller/command', JointTrajectory, queue_size=10) # to move the torso
 
         self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10) # to move the camera angle
 
@@ -64,7 +66,7 @@ class nodeC_picking_routine:
             9 : "Triangle_9"
         }
         
-        # rospy.sleep(15.0)
+        rospy.sleep(10.0)
         self.initial_config()
 
     def initial_config(self):
@@ -73,43 +75,20 @@ class nodeC_picking_routine:
         """
         rospy.loginfo("Moving arm to initial configuration")
         
-        # Get current state and joint values
-        # self.arm_torso_group.set_start_state_to_current_state()
-        current_joint_values = self.arm_group.get_current_joint_values()
-            
-        # Define target configuration
-        configuration = {
-                # 'torso_lift_joint': 0.35,
-                # 'arm_1_joint': pi / 2,
-                # 'arm_2_joint': 0.5,
-                # 'arm_3_joint': 0.0,
-                # 'arm_4_joint': 0.0,
-                # 'arm_5_joint': current_joint_values[4],
-                # 'arm_6_joint': current_joint_values[5],
-                # 'arm_7_joint': current_joint_values[6]
-                # 'torso_lift_joint': 0.35,
-                # 'arm_1_joint': 0.1,
-                # 'arm_2_joint': 0,
-                # 'arm_3_joint': current_joint_values[2],
-                # 'arm_4_joint': 0,
-                # 'arm_5_joint': current_joint_values[4],
-                # 'arm_6_joint': current_joint_values[5],
-                # 'arm_7_joint': current_joint_values[6]
-                'torso_lift_joint': 0.35,
-                'arm_1_joint': current_joint_values[0],
-                'arm_2_joint': current_joint_values[1],
-                'arm_3_joint': current_joint_values[2],
-                'arm_4_joint': current_joint_values[3],
-                'arm_5_joint': current_joint_values[4],
-                'arm_6_joint': current_joint_values[5],
-                'arm_7_joint': current_joint_values[6]
-                }
-            
-        # Set target and plan
-        self.arm_torso_group.set_joint_value_target(configuration)
+        position = 0.35
+        duration = 2.0
+        traj = JointTrajectory()
+        traj.joint_names = ["torso_lift_joint"]
 
-        self.arm_torso_group.go(wait=True)
-        self.arm_torso_group.stop()
+        # Definisci un punto di traiettoria
+        point = JointTrajectoryPoint()
+        point.positions = [position]
+        point.time_from_start = rospy.Duration(duration)
+
+        # Aggiungi il punto al messaggio
+        traj.points.append(point)
+
+        self.torso_pub.publish(traj)
 
     def picking_routine(self, msg):
         """

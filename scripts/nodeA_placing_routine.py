@@ -58,6 +58,7 @@ class nodeA_placing_routine:
             8 : "Triangle_8",
             9 : "Triangle_9"
         }
+        self.gripper_lenght = 0.22
         
     def placing_routine(self, msg):
         """
@@ -92,21 +93,26 @@ class nodeA_placing_routine:
             target_pose.position.y = y
             target_pose.position.z = z
 
-            z_offset = 0.3 + object_height
+            z_offset = 0.3 + object_height / 2
+            z_on_object = self.gripper_lenght + object_height / 2  # place the gripper about on half height of the object
 
             # align the gripper vertically
             self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("Arm positioned above the target point")
 
-            self.align_gripper_vertically(target_pose, 0.2 + object_height)
+            self.align_gripper_vertically(target_pose, z_on_object)
             rospy.loginfo("Object placed on the target point")
-
-            # detach object from gripper
-            self.detach_object_from_gripper()
 
             # open the gripper
             self.open_gripper()
             rospy.loginfo("Gripper opened")
+
+            # rospy.sleep(0.2)
+
+            # detach object from gripper
+            self.detach_object_from_gripper()
+
+            rospy.sleep(1)
 
             self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("PLACING ROUTINE COMPLETED")

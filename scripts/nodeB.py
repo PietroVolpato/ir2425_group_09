@@ -92,9 +92,10 @@ class NodeB:
         
         # Publish the detections message
         detections_msg.task = current_task
-        self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
 
-        if current_task == "picking":
+        if current_task == "placing":
+            self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
+        elif current_task == "picking":
             target_id = -1
             for elem in detections_msg.ids:
                 if elem in [1,2,3]:
@@ -104,6 +105,7 @@ class NodeB:
                 self.feedback_pub.publish(Int32(data=target_id))  # send nodeA_navigation -1, which means no target in the detections
                 return
 
+            self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
             index = detections_msg.ids.index(target_id)  # get target index
             target_pose = detections_msg.poses[index] # get target pose to print information
             x = target_pose.position.x

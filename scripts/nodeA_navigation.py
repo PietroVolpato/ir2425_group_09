@@ -13,6 +13,8 @@ from tf2_geometry_msgs import do_transform_pose
 from geometry_msgs.msg import PoseStamped, Twist
 from ir2425_group_09.msg import PlacingMessage  # custom message
 import numpy as np
+from nav_msgs.msg import Odometry
+from tf.transformations import euler_from_quaternion
 
 class nodeA_navigation:
     def __init__(self):
@@ -29,6 +31,8 @@ class nodeA_navigation:
         self.picking_feedback_sub = rospy.Subscriber('/picking_routine_feedback', Int32, self.object_picked_callback)
 
         self.picking_feedback_sub = rospy.Subscriber('/placing_routine_feedback', String, self.object_placed_callback)
+
+        rospy.Subscriber('/odom', Odometry, self.odom_callback)
 
         # Initialize actionlib client
         self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -47,12 +51,12 @@ class nodeA_navigation:
         self.docking_points = {
             "corridor exit": (8.7, 0),              # transition point
             "placing table front" : (8.6, -2),      # DOCKING point (placement)
-            "placing table behind" : (6.8, -2),     # DOCKING point (placement)
+            "placing table behind" : (6.85, -2),     # DOCKING point (placement)
             "picking table front" : (8.7, -3),      # DOCKING POINT (pickup)
             "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
             "picking table side" : (8, -4),       # DOCKING point (pickup)
-            "picking table vert2" : (6.8, -4.1),    # transition point top left vertex
-            "picking table behind" : (6.8, -3.1)      # DOCKING POINT (pickup)  
+            "picking table vert2" : (6.85, -4.1),    # transition point top left vertex
+            "picking table behind" : (6.85, -3.1)      # DOCKING POINT (pickup)  
         }
 
         # list of docking points that may contain a desired object
@@ -70,35 +74,79 @@ class nodeA_navigation:
         self.table_side = 0.9
 
         (m, q) = self.get_coefficients()
-        self.m = m
+        self.m = 0.2
         self.q = q
         self.target_points_map_frame = None
 
         self.counter_placed_objects = 0
 
-    def rotation(self, angle, theta):
+        self.current_yaw = 0.0
+        self.yaw_tolerance = 0.1  
+
+    def rotate_to_yaw(self, target_yaw):
         """
-        This function makes tiago rotate on himself.
-        Angle: total angle of desired rotation
-        Theta: angular velocity in rad/s. Positive for counterclockwise, negative for clockwise
+        Ruota Tiago fino a raggiungere l'angolo specificato.
+        :param target_yaw: Angolo desiderato in radianti.
         """
+        rate = rospy.Rate(10)  # Frequenza di pubblicazione (10 Hz)
 
-        # Define the Twist message for rotation
-        rotate_cmd = Twist()
-        rotate_cmd.angular.z = theta  # Angular velocity in radians/second (counterclockwise)
+        while not rospy.is_shutdown():
+            # Calcola l'errore angolare
+            yaw_error = self.normalize_angle(target_yaw - self.current_yaw)
 
-        # Calculate rotation duration 
-        rotation_duration = angle / abs(rotate_cmd.angular.z) 
+            # Controlla se siamo entro la tolleranza
+            if abs(yaw_error) < self.yaw_tolerance:
+                rospy.loginfo("Angolo raggiunto!")
+                self.cmd_vel_pub.publish(Twist()) 
+                break 
 
-        rate = rospy.Rate(50)  
-        start_time = rospy.Time.now()
-    
-        while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
-            self.cmd_vel_pub.publish(rotate_cmd)
+            # Calcola velocità angolare proporzionale
+            angular_speed = 0.5 * yaw_error  # Guadagno proporzionale
+            angular_speed = max(min(angular_speed, 1.0), -1.0)  # Limita velocità
+
+            # Pubblica il comando di rotazione
+            twist_msg = Twist()
+            twist_msg.angular.z = angular_speed
+            self.cmd_vel_pub.publish(twist_msg)
+
             rate.sleep()
 
-        # Stop the robot after rotation
-        self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
+    @staticmethod
+    def normalize_angle(angle):
+        """
+        Normalizza un angolo in radianti nell'intervallo [-pi, pi].
+        :param angle: Angolo in radianti.
+        :return: Angolo normalizzato in radianti.
+        """
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
+
+    # def rotation(self, angle, theta):
+    #     """
+    #     This function makes tiago rotate on himself.
+    #     Angle: total angle of desired rotation
+    #     Theta: angular velocity in rad/s. Positive for counterclockwise, negative for clockwise
+    #     """
+
+    #     # Define the Twist message for rotation
+    #     rotate_cmd = Twist()
+    #     rotate_cmd.angular.z = theta  # Angular velocity in radians/second (counterclockwise)
+
+    #     # Calculate rotation duration 
+    #     rotation_duration = angle / abs(rotate_cmd.angular.z) 
+
+    #     rate = rospy.Rate(50)  
+    #     start_time = rospy.Time.now()
+    
+    #     while (rospy.Time.now() - start_time).to_sec() < rotation_duration:
+    #         self.cmd_vel_pub.publish(rotate_cmd)
+    #         rate.sleep()
+
+    #     # Stop the robot after rotation
+    #     self.cmd_vel_pub.publish(Twist())  # Publish zero velocity
 
     def move_straight(self, distance, speed=0.5):
         # Definisci il messaggio Twist
@@ -127,6 +175,13 @@ class nodeA_navigation:
         self.cmd_vel_pub.publish(velocity_msg)
         rospy.loginfo("Target distance reached.")
 
+    def odom_callback(self, msg):
+        q = msg.pose.pose.orientation
+        orientation = [q.x, q.y, q.z, q.w]
+        roll, pitch, yaw = euler_from_quaternion(orientation)
+
+        self.current_yaw = yaw
+
     def send_goal(self, target):
         """
         Sends a goal using MoveBaseAction. The target should be a name of one of the predefined points, which are associated to 
@@ -151,7 +206,7 @@ class nodeA_navigation:
         goal.target_pose.pose.position.y = p[1]
 
         # define a proper orientation looking at the table for every docking point
-        if target == "corridor exit" or target == "picking table vert1":
+        if target == "corridor exit": # or target == "picking table vert1":
             theta = -math.pi/2
         elif target == "picking table front":  
             theta = 16.8/18*math.pi  # look ahead, slightly rotated right          
@@ -163,43 +218,64 @@ class nodeA_navigation:
             theta = 1/18*math.pi
         elif target == "placing table behind":
             theta = 0  # look behind
+        elif target == "picking table vert1" :
+            if self.current_point == "picking table vert2" and self.current_point == "picking table side":
+                theta = math.pi / 2
+            else:
+                theta = -math.pi / 2
 
         goal.target_pose.pose.orientation.w = math.cos(theta/2)
         goal.target_pose.pose.orientation.z = math.sin(theta/2)
-        #print(f"Sending goal: {target}")
+        print(f"Sending goal: {target}")
         use_move_base = True
 
-        ang_speed = 0.6
-        if self.current_point == "picking table vert2":
+        # ang_speed = 0.6
+        # if self.current_point == "picking table vert2" and not target == "picking table vert1":
+        #     if target == "picking table behind":
+        #         self.rotation(math.pi * 0.555, -ang_speed)
+        #         self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
+        #         self.rotation(math.pi / 2, -ang_speed)
+        #     elif target == "placing table behind":
+        #         self.rotation(math.pi * 0.555, -ang_speed)
+        #         self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
+        #         self.rotation(math.pi / 2, -ang_speed)
+        #     use_move_base = False
+        # elif self.current_point == "picking table behind":
+        #     if target == "picking table vert2":
+        #         self.rotation(math.pi / 2, -ang_speed)
+        #         self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["picking table behind"][1]))
+        #         self.rotation(math.pi / 2, ang_speed)
+        #     elif target == "placing table behind":
+        #         self.rotation(math.pi * 0.47, ang_speed)
+        #         self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table behind"][1]))
+        #         self.rotation(math.pi * 0.52, -ang_speed)
+        #     use_move_base = False
+        # elif self.current_point == "placing table behind":
+        #     if target == "picking table vert2":
+        #         self.rotation(math.pi * 0.506, -ang_speed)
+        #         self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["placing table behind"][1]))
+        #         self.rotation(math.pi / 2, ang_speed)
+        #     elif target == "picking table behind":
+        #         self.rotation(math.pi * 0.506, -ang_speed)
+        #         self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
+        #         self.rotation(math.pi * 0.55, ang_speed)
+        #     use_move_base = False
+        # elif self.current_point == "placing table front":
+        #     if target == "picking table vert1":
+        #         self.rotation(math.pi / 2, ang_speed)
+        #         use_move_base = True
+
+        if self.current_point == "picking table vert2" and not target == "picking table vert1":
             if target == "picking table behind":
-                self.rotation(math.pi * 0.555, -ang_speed)
+                self.rotate_to_yaw(math.pi / 2)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
-                self.rotation(math.pi / 2, -ang_speed)
+                self.rotate_to_yaw(0)
             elif target == "placing table behind":
-                self.rotation(math.pi * 0.555, -ang_speed)
+                self.rotate_to_yaw(math.pi / 2)
                 self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
-                self.rotation(math.pi / 2, -ang_speed)
+                self.rotate_to_yaw(0)
             use_move_base = False
-        elif self.current_point == "picking table behind":
-            if target == "picking table vert2":
-                self.rotation(math.pi / 2, -ang_speed)
-                self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["picking table behind"][1]))
-                self.rotation(math.pi / 2, ang_speed)
-            elif target == "placing table behind":
-                self.rotation(math.pi / 2, ang_speed)
-                self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table behind"][1]))
-                self.rotation(math.pi / 2, -ang_speed)
-            use_move_base = False
-        elif self.current_point == "placing table behind":
-            if target == "picking table vert2":
-                self.rotation(math.pi * 0.506, -ang_speed)
-                self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["placing table behind"][1]))
-                self.rotation(math.pi / 2, ang_speed)
-            elif target == "picking table behind":
-                self.rotation(math.pi * 0.506, -ang_speed)
-                self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
-                self.rotation(math.pi / 2, ang_speed)
-            use_move_base = False
+
 
         if use_move_base == True:
             self.nav_client.send_goal(goal)
