@@ -55,7 +55,7 @@ class nodeA_placing_routine:
             8 : "Triangle_8",
             9 : "Triangle_9"
         }
-        self.gripper_lenght = 0.22
+        self.gripper_length = 0.226
         
     def placing_routine(self, msg):
         """
@@ -90,8 +90,12 @@ class nodeA_placing_routine:
             target_pose.position.y = y
             target_pose.position.z = z
 
-            z_offset = 0.3 + object_height / 2
-            z_on_object = self.gripper_lenght + object_height / 2  # place the gripper about on half height of the object
+            z_offset = 0.31 + object_height / 2  # 30 cm above the object
+            if self.target_id in [1, 2, 3, 4, 5, 6]:
+                z_on_object = self.gripper_length + object_height / 2
+            else:
+                z_on_object = self.gripper_length + object_height   # place the gripper about on half height of the object
+
 
             self.intermediate_pose()
 
@@ -105,14 +109,17 @@ class nodeA_placing_routine:
             self.align_gripper_vertically(target_pose, z_on_object)
             rospy.loginfo("Object placed on the target point")
 
-            # open the gripper
-            self.open_gripper()
-            rospy.loginfo("Gripper opened")
 
             # detach object from gripper
             self.detach_object_from_gripper()
 
-            rospy.sleep(1)
+            rospy.sleep(1.5)
+
+            # open the gripper
+            self.open_gripper()
+            rospy.loginfo("Gripper opened")
+
+            rospy.sleep(1.5)
 
             self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("PLACING ROUTINE COMPLETED")
@@ -187,7 +194,7 @@ class nodeA_placing_routine:
         scene.remove_world_object(str(object_name))
         rospy.sleep(1.0) # wait for scene update
 
-    def open_gripper(self, opening=0.08):
+    def open_gripper(self, opening=0.088):
         """
         Open the gripper to release the object.
         """
@@ -260,7 +267,7 @@ class nodeA_placing_routine:
                 'arm_3_joint': -0.2,
                 'arm_4_joint': 0,
                 'arm_5_joint': -1.57,
-                'arm_6_joint': 0,
+                'arm_6_joint': 0.8,
                 'arm_7_joint': 0
         }
         

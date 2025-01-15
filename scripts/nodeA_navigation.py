@@ -50,13 +50,13 @@ class nodeA_navigation:
         # Define static docking points + transition points
         self.docking_points = {
             "corridor exit": (8.7, 0),              # transition point
-            "placing table front" : (8.67, -2),      # DOCKING point (placement)
+            "placing table front" : (8.65, -2),      # DOCKING point (placement)
             "placing table behind" : (6.85, -2),     # DOCKING point (placement)
             "picking table front" : (8.7, -3),      # DOCKING POINT (pickup)
             "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
-            "picking table side" : (8, -4),       # DOCKING point (pickup)
+            "picking table side" : (7.9, -3.9),       # DOCKING point (pickup)
             "picking table vert2" : (6.85, -4.1),    # transition point top left vertex
-            "picking table behind" : (6.85, -3.1)      # DOCKING POINT (pickup)  
+            "picking table behind" : (6.85, -3.0)      # DOCKING POINT (pickup)  
         }
 
         # list of docking points that may contain a desired object
@@ -74,7 +74,7 @@ class nodeA_navigation:
         self.table_side = 0.9
 
         (m, q) = self.get_coefficients()
-        self.m = 0.2
+        self.m = m
         self.q = q
         self.target_points_map_frame = None
 
@@ -89,7 +89,10 @@ class nodeA_navigation:
         :param target_yaw: Angolo desiderato in radianti.
         """
         rate = rospy.Rate(50)  # Frequenza di pubblicazione (10 Hz)
-        
+        angle = target_yaw - self.current_yaw
+        norm_angle = self.normalize_angle(angle)
+        sign = math.copysign(1, norm_angle)
+        # print(f"Rotating to yaw: {target_yaw}, current yaw: {self.current_yaw}, angle: {norm_angle}, sign: {sign}")
 
         while not rospy.is_shutdown():
             # Calcola l'errore angolare
@@ -97,21 +100,16 @@ class nodeA_navigation:
 
             # Controlla se siamo entro la tolleranza
             if abs(yaw_error) < self.yaw_tolerance:
-                rospy.loginfo("Angolo raggiunto!")
                 self.cmd_vel_pub.publish(Twist()) 
                 break 
 
             # Calcola velocità angolare proporzionale
-            angular_speed = 1 if yaw_error > math.pi / 9 else 0.3
+            angular_speed = 1 if abs(yaw_error) > math.pi / 5 else 0.3
             # angular_speed = max(min(angular_speed, 1.0), -1.0)  # Limita velocità
-
-            if yaw_error > math.pi:
-                angular_speed = -angular_speed
-
 
             # Pubblica il comando di rotazione
             twist_msg = Twist()
-            twist_msg.angular.z = angular_speed
+            twist_msg.angular.z = angular_speed * sign
             self.cmd_vel_pub.publish(twist_msg)
 
             rate.sleep()
@@ -218,7 +216,7 @@ class nodeA_navigation:
         elif target == "picking table vert2" or target == "placing table front":  # look ahead
             theta = math.pi  
         elif target == "picking table side":
-            theta = math.pi/2  
+            theta = math.radians(85) 
         elif target == "picking table behind": # look behind, slightly rotated left
             theta = 1/18*math.pi
         elif target == "placing table behind":
@@ -231,50 +229,14 @@ class nodeA_navigation:
 
         goal.target_pose.pose.orientation.w = math.cos(theta/2)
         goal.target_pose.pose.orientation.z = math.sin(theta/2)
-        print(f"Sending goal: {target}")
+        # print(f"Sending goal: {target}")
         use_move_base = True
-
-        # ang_speed = 0.6
-        # if self.current_point == "picking table vert2" and not target == "picking table vert1":
-        #     if target == "picking table behind":
-        #         self.rotation(math.pi * 0.555, -ang_speed)
-        #         self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
-        #         self.rotation(math.pi / 2, -ang_speed)
-        #     elif target == "placing table behind":
-        #         self.rotation(math.pi * 0.555, -ang_speed)
-        #         self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
-        #         self.rotation(math.pi / 2, -ang_speed)
-        #     use_move_base = False
-        # elif self.current_point == "picking table behind":
-        #     if target == "picking table vert2":
-        #         self.rotation(math.pi / 2, -ang_speed)
-        #         self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["picking table behind"][1]))
-        #         self.rotation(math.pi / 2, ang_speed)
-        #     elif target == "placing table behind":
-        #         self.rotation(math.pi * 0.47, ang_speed)
-        #         self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table behind"][1]))
-        #         self.rotation(math.pi * 0.52, -ang_speed)
-        #     use_move_base = False
-        # elif self.current_point == "placing table behind":
-        #     if target == "picking table vert2":
-        #         self.rotation(math.pi * 0.506, -ang_speed)
-        #         self.move_straight(abs(self.docking_points["picking table vert2"][1] - self.docking_points["placing table behind"][1]))
-        #         self.rotation(math.pi / 2, ang_speed)
-        #     elif target == "picking table behind":
-        #         self.rotation(math.pi * 0.506, -ang_speed)
-        #         self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
-        #         self.rotation(math.pi * 0.55, ang_speed)
-        #     use_move_base = False
-        # elif self.current_point == "placing table front":
-        #     if target == "picking table vert1":
-        #         self.rotation(math.pi / 2, ang_speed)
-        #         use_move_base = True
 
         if self.current_point == "picking table vert2" and not target == "picking table vert1":
             if target == "picking table behind":
                 self.rotate_to_yaw(math.pi / 2)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["picking table vert2"][1]))
-                self.rotate_to_yaw(math.radians(5))
+                self.rotate_to_yaw(math.radians(-5))
             elif target == "placing table behind":
                 self.rotate_to_yaw(math.pi / 2)
                 self.move_straight(abs(self.docking_points["placing table behind"][1] - self.docking_points["picking table vert2"][1]))
@@ -298,7 +260,7 @@ class nodeA_navigation:
             elif target == "picking table behind":
                 self.rotate_to_yaw(-math.pi / 2)
                 self.move_straight(abs(self.docking_points["picking table behind"][1] - self.docking_points["placing table behind"][1]))
-                self.rotate_to_yaw(math.radians(5))
+                self.rotate_to_yaw(0)
             use_move_base = False
         elif self.current_point == "placing table front":
             if target == "picking table vert1":
@@ -306,10 +268,13 @@ class nodeA_navigation:
                 use_move_base = True
         elif self.current_point == "picking table side":
             if target == "picking table vert1":
-                self.rotate_to_yaw(0)
+                self.rotate_to_yaw(math.radians(-5))
                 use_move_base = True
+        if self.current_point == "picking table vert2" and target == "picking table side":
+            self.rotate_to_yaw(0)
+            use_move_base = True
 
-        print(f"Use move base: {use_move_base}")
+        # print(f"Use move base: {use_move_base}")
 
         if use_move_base == True:
             self.nav_client.send_goal(goal)

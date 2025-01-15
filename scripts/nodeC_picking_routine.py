@@ -4,9 +4,10 @@ from moveit_commander import PlanningSceneInterface, MoveGroupCommander
 from std_msgs.msg import String
 from std_msgs.msg import Int32
 import tf2_ros
+from tf2_geometry_msgs import do_transform_pose
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
-from math import pi
-from tf.transformations import quaternion_from_euler
+import math
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 from ir2425_group_09.msg import TargetObject  # custom message
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -18,6 +19,8 @@ class nodeC_picking_routine:
         # Subscribe to the nav_goal topic
         rospy.Subscriber('/picking_routine', TargetObject, self.picking_routine)
         self.torso_pub = rospy.Publisher('/torso_controller/command', JointTrajectory, queue_size=10) # to move the torso
+
+        self.arm_pub = rospy.Publisher('/arm_controller/command', JointTrajectory, queue_size=10) # to move the arm
 
         self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10) # to move the camera angle
 
@@ -49,7 +52,7 @@ class nodeC_picking_routine:
                             4: 'cube', 5: 'cube', 6 : 'cube',
                             7: 'triangular prism', 8 : 'triangular prism', 9 : 'triangular prism'}
         
-        self. gripper_length = 0.22
+        self. gripper_length = 0.226
 
         self.object_heights = { 1 : 0.1, 2 : 0.1, 3 : 0.1,
                                 4 : 0.05, 5 : 0.05, 6 : 0.05,
@@ -102,24 +105,28 @@ class nodeC_picking_routine:
         target_pose = msg.pose
         target_id = msg.id
 
-        z_above_object = 0.3  # z offset of the position of the arm above the object
+        z_above_object = 0.4 - self.object_heights[target_id]  # z offset of the position of the arm above the object
         if target_id in [1, 2, 3, 4, 5, 6]:
             z_on_object = self.gripper_length - self.object_heights[target_id] / 2
         else:
-            z_on_object = self.gripper_length #- self.object_heights[target_id] / 3  # place the gripper about on half height of the object
+            z_on_object = self.gripper_length + 0.025  # place the gripper about on half height of the object
+            # target_pose.position.x += (0.07 / 4)* math.cos(0.645006)
+            # target_pose.position.y += (0.07 / 4)* math.sin(0.645006)
 
         rospy.sleep(1)  # give time planning scene to initialize
         rospy.loginfo(f"Starting PICKING ROUTINE. Target is obj {target_id} ({self.object_list[target_id]})")
         
-        self.intermediate_pose()  # intermediate pose to raise the arm
-        self.align_gripper_vertically(target_pose, z_offset = z_above_object) # place arm 35cm above object
+        yaw = 0 #self.correct_gripper_orientation(target_pose)
+
+        self.intermediate_pose(yaw=yaw)  # intermediate pose to raise the arm
+        self.align_gripper_vertically(target_pose, z_above_object) # place arm 35cm above object
         rospy.loginfo(f"Arm positioned above the target object")
 
         # Remove the collision object of the picking table
         self.remove_collision_object("pickup_table")
 
         # grasp pose 20 cm above target because the frame is above the gripper fingers, which are long slightly less than 0.2
-        self.align_gripper_vertically(target_pose, z_offset = z_on_object) # gripper surrounds the object
+        self.align_gripper_vertically(target_pose, z_on_object) # gripper surrounds the object
         rospy.loginfo("Gripper in position, ready to close.") 
 
         self.remove_collision_object(target_id)
@@ -164,7 +171,7 @@ class nodeC_picking_routine:
             goal_pose.pose.position.y = target_pose.position.y
             goal_pose.pose.position.z = target_pose.position.z + z_offset
 
-            q = quaternion_from_euler(0, pi/2, 0)  # clockwise rotation around y axis to point gripper downward
+            q = quaternion_from_euler(0, math.pi/2, 0)  # clockwise rotation around y axis to point gripper downward
             # Set the orientation
             goal_pose.pose.orientation.x = q[0]
             goal_pose.pose.orientation.y = q[1]
@@ -184,7 +191,30 @@ class nodeC_picking_routine:
 
         except Exception as e:
             raise Exception(f"Error moving arm: {str(e)}")
-
+        
+    def correct_gripper_orientation(self, target_pose):
+        """Corrects gripper orientation based on target pose.
+        Args:
+            target_pose: PoseStamped containing desired orientation
+        """
+        # Convert the pose from base_link to camera
+        
+        try:
+            transform = self.tf_buffer.lookup_transform("base_link", "xtion_rgb_optical_frame", rospy.Time(0))
+            target_pose_camera = do_transform_pose(target_pose, transform)
+        except Exception as e:
+            raise Exception(f"Failed to transform pose: {str(e)}")
+        
+        # Extract quaternion and convert to euler angles
+        q = target_pose_camera.pose.orientation
+        euler = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        yaw = euler[2]
+        #     # Extract quaternion and convert to euler angles
+        # q = target_pose.orientation
+        # euler = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        print(f"Yaw: {yaw}")
+        return yaw
+        
     def remove_collision_object(self, object_name):
         """
         Remove a collision object from the planning scene.
@@ -270,9 +300,9 @@ class nodeC_picking_routine:
         except rospy.ROSException as e:
             rospy.logerr(f"Service call failed: {str(e)}")
     
-    def intermediate_pose(self):
+    def intermediate_pose(self, yaw = 0):
         """
-        Move the arm to the default configuration
+        Move the arm to the intermediate configuration
         """
         configuration = {
                 'torso_lift_joint': 0.35,
@@ -281,8 +311,8 @@ class nodeC_picking_routine:
                 'arm_3_joint': -0.2,
                 'arm_4_joint': 0,
                 'arm_5_joint': -1.57,
-                'arm_6_joint': 0,
-                'arm_7_joint': 0
+                'arm_6_joint': 0.8,
+                'arm_7_joint': yaw
         }
         
         try:
@@ -294,6 +324,7 @@ class nodeC_picking_routine:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
         rospy.loginfo("Arm moved to default configuration")  
+
 
     def move_to_safe_configuration(self):
         """

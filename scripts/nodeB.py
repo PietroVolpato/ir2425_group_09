@@ -98,7 +98,7 @@ class NodeB:
         elif current_task == "picking":
             target_id = -1
             for elem in detections_msg.ids:
-                if elem in [7, 8, 9]:
+                if elem in [4, 5, 6]:
                     target_id = elem
             
             if target_id == -1:  # no valid target in the detections
