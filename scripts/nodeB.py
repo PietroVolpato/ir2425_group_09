@@ -19,7 +19,6 @@ import numpy as np
 class NodeB:
     def __init__(self):
         rospy.init_node('nodeB')
-        rospy.sleep(20)
 
         self.bridge = CvBridge()
         # Simpler HSV ranges with more tolerance
@@ -29,9 +28,8 @@ class NodeB:
             'blue': ([118, 242, 102], [123, 255, 178])  # Per valori simili a #0101A2
         }
 
+        self.flag = False
         self.target_color = random.choice(['red', 'green', 'blue'])
-        rospy.loginfo(f"Target color set to: {self.target_color}")
-        # self.debug_image_pub = rospy.Publisher('/debug_image', Image, queue_size=10)
 
         # Define the publisher to communicate with node C
         self.object_pub = rospy.Publisher('/detected_objects', Detections, queue_size=10)
@@ -102,6 +100,10 @@ class NodeB:
         grabbed.
         If no detected object is a valid target, then targe
         """
+
+        if not self.flag:
+            rospy.loginfo(f"Target color set to: {self.target_color}")
+            self.flag = True
 
         current_task = msg.data
 
