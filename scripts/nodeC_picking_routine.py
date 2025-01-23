@@ -3,11 +3,9 @@ from geometry_msgs.msg import PoseStamped
 from moveit_commander import PlanningSceneInterface, MoveGroupCommander
 from std_msgs.msg import String
 from std_msgs.msg import Int32
-import tf2_ros
-from tf2_geometry_msgs import do_transform_pose
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 import math
-from tf.transformations import quaternion_from_euler, euler_from_quaternion
+from tf.transformations import quaternion_from_euler
 from ir2425_group_09.msg import TargetObject  # custom message
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -22,21 +20,12 @@ class nodeC_picking_routine:
 
         self.arm_pub = rospy.Publisher('/arm_controller/command', JointTrajectory, queue_size=10) # to move the arm
 
-        self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10) # to move the camera angle
+        self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10)
 
         self.table_pub = rospy.Publisher('/table_co', String, queue_size=10) 
 
-        # Initialize actionlib client
-        #self.nav_client = actionlib.SimpleActionClient("move_base", MoveBaseAction)
-        #rospy.loginfo("Waiting for move_base action server...")
-        #self.nav_client.wait_for_server()
-        #rospy.loginfo("Connected to move_base action server.")
-
         rospy.wait_for_service('/link_attacher_node/attach', timeout=5.0)
         self.attach_srv = rospy.ServiceProxy('/link_attacher_node/attach', Attach)
-
-        self.tf_buffer = tf2_ros.Buffer()
-        self.listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.scene = PlanningSceneInterface()
 
@@ -78,8 +67,6 @@ class nodeC_picking_routine:
         """
         Move the arm to initial configuration with proper state handling
         """
-        rospy.loginfo("Moving arm to initial configuration")
-        
         position = 0.35
         duration = 2.0
         traj = JointTrajectory()
@@ -99,7 +86,6 @@ class nodeC_picking_routine:
         """
         Start the manipulation process
         """
-        print("Moving arm to initial configuration")
         self.initial_config()
 
         target_pose = msg.pose
@@ -109,7 +95,7 @@ class nodeC_picking_routine:
         if target_id in [1, 2, 3, 4, 5, 6]:
             z_on_object = self.gripper_length - self.object_heights[target_id] / 2
         else:
-            z_on_object = self.gripper_length + 0.021  # place the gripper about on half height of the object
+            z_on_object = self.gripper_length + 0.019  # place the gripper about on half height of the object
             target_pose.position.x += 0.01
             target_pose.position.y += 0.01
 
@@ -130,26 +116,26 @@ class nodeC_picking_routine:
         rospy.loginfo("Gripper in position, ready to close.") 
 
         self.remove_collision_object(target_id)
-        rospy.loginfo(f"Removed collision object of the target object ({target_id})")
 
         self.close_gripper_until_contact()
         rospy.loginfo(f"Gripper closed")
 
         self.attach_object_to_gripper(target_id)
-        rospy.loginfo(f"Attached object {target_id} ({self.model_names[target_id]}) to the gripper.")
+        rospy.loginfo(f"Attached object to the gripper.")
 
-        self.align_gripper_vertically(target_pose, z_above_object)  # lift object
-        rospy.loginfo(f"Object lifted, PICKUP ROUTINE COMPLETED")
-
+        self.align_gripper_vertically(target_pose, z_above_object)
+        
         # Re create the collision object of the picking table
         self.table_pub.publish(String(data="picking"))  # publish the table position for the planning scene
 
+        rospy.loginfo("Moving arm to safe pose")
         self.move_to_safe_configuration()
-        rospy.loginfo("Arm moved to safe configuration")
 
         self.remove_all_objects()
 
         self.feedback_pub.publish(Int32(data=target_id))
+
+        rospy.loginfo(f"Object lifted, PICKUP ROUTINE COMPLETED")
 
     def align_gripper_vertically(self, target_pose, z_offset):
         """
@@ -191,29 +177,6 @@ class nodeC_picking_routine:
 
         except Exception as e:
             raise Exception(f"Error moving arm: {str(e)}")
-        
-    def correct_gripper_orientation(self, target_pose):
-        """Corrects gripper orientation based on target pose.
-        Args:
-            target_pose: PoseStamped containing desired orientation
-        """
-        # Convert the pose from base_link to camera
-        
-        try:
-            transform = self.tf_buffer.lookup_transform("base_link", "xtion_rgb_optical_frame", rospy.Time(0))
-            target_pose_camera = do_transform_pose(target_pose, transform)
-        except Exception as e:
-            raise Exception(f"Failed to transform pose: {str(e)}")
-        
-        # Extract quaternion and convert to euler angles
-        q = target_pose_camera.pose.orientation
-        euler = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        yaw = euler[2]
-        #     # Extract quaternion and convert to euler angles
-        # q = target_pose.orientation
-        # euler = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        print(f"Yaw: {yaw}")
-        return yaw
         
     def remove_collision_object(self, object_name):
         """
@@ -267,7 +230,6 @@ class nodeC_picking_routine:
                 # Check if either finger has stopped moving, indicating contact
                 updated_joints = self.gripper_group.get_current_joint_values()
                 if abs(updated_joints[0] - left_finger_joint) < closing_step / 4 and abs(updated_joints[1] - right_finger_joint) < closing_step / 4:
-                    rospy.loginfo("Gripper fingers stopped moving; assumed object contact.")
                     break
 
             except Exception as e:
@@ -282,8 +244,7 @@ class nodeC_picking_routine:
 
         model_name = self.model_names[target_id]   # name of the object model in gazebo
         link_name = f"{model_name}::{model_name}_link"   # name of the link of the object in gazebo
-        #print(f"model name: {model_name}")
-        #print(f"link name: {link_name}")
+        
         try:    
             # Create the attach request
             req = AttachRequest()
@@ -323,9 +284,6 @@ class nodeC_picking_routine:
         except Exception as e:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
-        rospy.loginfo("Arm moved to default configuration")  
-
-
     def move_to_safe_configuration(self):
         """
         Move the arm to the default configuration
@@ -349,8 +307,6 @@ class nodeC_picking_routine:
 
         except Exception as e:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
-
-        rospy.loginfo("Arm moved to default configuration")   
 
     def remove_all_objects(self):
         """

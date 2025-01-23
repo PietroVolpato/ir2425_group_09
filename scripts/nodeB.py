@@ -13,12 +13,13 @@ import random
 import math
 import cv2
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image
 import numpy as np
 
 class NodeB:
     def __init__(self):
         rospy.init_node('nodeB')
+        rospy.sleep(20)
 
         self.bridge = CvBridge()
         # Simpler HSV ranges with more tolerance
@@ -44,7 +45,11 @@ class NodeB:
         # node a tells what are the detections for ("placing" or "picking")
         rospy.Subscriber('/detections_command', String, self.send_detections_callback)
 
-        self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10) # to move the camera angle
+        rospy.Subscriber('/xtion/rgb/image_raw', Image, self.image_callback)
+
+        self.feedback_pub = rospy.Publisher('/picking_routine_feedback', Int32, queue_size=10)
+
+        self.skip_pub = rospy.Publisher('/skip', String, queue_size=10)
 
         # TF2 setup
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
@@ -71,27 +76,17 @@ class NodeB:
             height, width = hsv_image.shape[:2]
             roi_height = height // 3  
             roi_width = width // 3     
-
-            # debug_image = self.current_image.copy()  # Copy the image for debugging
-
     
             for x in range(0, width-1, roi_width):
-                x1 = x
-                x2 = min(width, x + roi_width)  
-                roi = hsv_image[roi_height:height, x1:x2]
+                x1 = x + 20
+                x2 = min(width, x + roi_width - 20)  
+                roi = hsv_image[int(roi_height):height - roi_height, x1:x2]
 
                 for color, (lower, upper) in self.color_ranges.items():
                     mask = cv2.inRange(roi, np.array(lower), np.array(upper))
                     if np.sum(mask) > 3000:
                         detected_colors.append(color)
-                        rospy.loginfo(f"Detected {color} in region: {x1}-{x2}")
                         break
-
-                # Draw ROI rectangle on the debug image
-                # cv2.rectangle(debug_image, (x1, roi_height), (x2, height), (0, 255, 0), 2)
-
-            
-            # self.save_debug_image(debug_image)
     
             return detected_colors
     
@@ -146,9 +141,6 @@ class NodeB:
 
                         # Append to object_list only if the object meets the conditions
                         object_list.append((tag_id, type, transformed_pose.pose, y_obj))
-
-                        if current_task == "picking":
-                            rospy.loginfo(f"Detected reachable obj id {tag_id}, {type}. Planar dist = {planar_distance:.2f}") # print detected id and category of the object
                     
                 except Exception as e:
                     rospy.logerr(f"Failed to transform pose for tag ID {tag_id}: {e}")
@@ -161,10 +153,11 @@ class NodeB:
         # Sort the object_list by y_obj in descending order
         object_list.sort(key=lambda obj: obj[3], reverse=True)  
 
-        # Print the sorted contents of object_list
-        rospy.loginfo("Object from left to right:")
-        for obj in object_list:
-            rospy.loginfo(f"Tag ID: {obj[0]}, Object Type: {obj[1]}")
+        if current_task == "picking":
+            # Print the sorted contents of object_list
+            rospy.loginfo("Object from left to right:")
+            for obj in object_list:
+                rospy.loginfo(f"Tag ID: {obj[0]}, Object Type: {obj[1]}")
 
         # Publish the detections message
         detections_msg.task = current_task
@@ -187,6 +180,10 @@ class NodeB:
                 rospy.loginfo("No valid targets with correct color found")
                 self.feedback_pub.publish(Int32(data=-1))
                 return
+            
+            if len(valid_targets) == 1:
+                self.skip_pub.publish(String(data="skip"))
+                
 
             self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
             target_id = valid_targets[0] #

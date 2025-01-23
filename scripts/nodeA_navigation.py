@@ -4,7 +4,6 @@ import rospy
 from tiago_iaslab_simulation.srv import Coeffs
 from std_msgs.msg import String
 from std_msgs.msg import Int32
-import actionlib
 import math
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 import tf2_ros 
@@ -34,22 +33,11 @@ class nodeA_navigation:
 
         self.picking_feedback_sub = rospy.Subscriber('/picking_routine_feedback', Int32, self.object_picked_callback)
         self.picking_feedback_sub = rospy.Subscriber('/placing_routine_feedback', String, self.object_placed_callback)
+        rospy.Subscriber('/skip', String, self.kill_docking_point)
 
         # TF2 setup
         self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(10.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
-
-        # Define static docking points + transition points
-        # self.docking_points = {
-        #     "corridor exit": (8.7, 0),              # transition point
-        #     "placing table front" : (8.65, -2),      # DOCKING point (placement)
-        #     "placing table behind" : (6.85, -2),     # DOCKING point (placement)
-        #     "picking table front" : (8.7, -3),      # DOCKING POINT (pickup)
-        #     "picking table vert1" : (9, -4.1),      # transition point bottom left vertex
-        #     "picking table side" : (7.9, -3.9),       # DOCKING point (pickup)
-        #     "picking table vert2" : (6.85, -4.1),    # transition point top left vertex
-        #     "picking table behind" : (6.85, -3.0)      # DOCKING POINT (pickup)  
-        # }
 
         self.docking_points = {} # will be computed on runtime when tiago can see the tables
         self.placing_table_center = None # will be initialized on runtime when tiago can see the tables
@@ -93,6 +81,8 @@ class nodeA_navigation:
         self.chosen_side = None  #  variable used to handle the case tiago is in front of an obstacle. Once is fixed, we stick to that side to avoid obstacle.
         self.control_law_active = False # keep track is the control mode is active
         self.c_l_threshold = 0.5 # hysterisis thresholding to exit control law
+
+        self.kill = False  # flag to kill the current docking point
     
     def scan_callback(self, msg):
         self.scan_data = msg
@@ -102,6 +92,13 @@ class nodeA_navigation:
     def cmd_vel_callback(self, msg):
         # Update the last time a command was sent
         self.last_command_time = rospy.Time.now()
+
+    def kill_docking_point(self, msg):
+        """
+        This function is called when a docking point is skipped, and the flag 'kill' is set to True.
+        The current docking point is removed from the list of alive points, and the next point is reached.
+        """
+        self.kill = True
 
     def is_stationary(self):
         # Check if no velocity commands have been sent for longer than the threshold
@@ -119,7 +116,6 @@ class nodeA_navigation:
         angle = target_yaw - self.current_yaw
         norm_angle = self.normalize_angle(angle)
         sign = math.copysign(1, norm_angle)
-        # print(f"Rotating to yaw: {target_yaw}, current yaw: {self.current_yaw}, angle: {norm_angle}, sign: {sign}")
 
         while not rospy.is_shutdown():
 
@@ -202,7 +198,7 @@ class nodeA_navigation:
 
         # defined the desired orientation for docking points
         rotation_map = {
-            "picking table front" : math.radians(168),
+            "picking table front" : math.pi,
             "picking table side" : math.pi/2,
             "picking table behind" : 0,  #math.radians(-5),
             "placing table front" : math.pi,
@@ -352,6 +348,10 @@ class nodeA_navigation:
             rospy.loginfo("No desired object detected, moving to next pickup point")
             self.move_to_next_pickup_point()
             return
+        
+        if self.kill:
+            self.alive_pickup_points.pop(0)
+            self.kill = False
         
         if len(self.alive_placement_points) == 1:                # chose the only option in this case
             placing_point = self.alive_placement_points[0]
@@ -505,11 +505,9 @@ class nodeA_navigation:
         docking_back = self.docking_points["placing table behind"]
 
         dist = math.sqrt((x_last_point-docking_back[0])**2 + (y_last_point-docking_back[1])**2)
-        print(f"dist PLACING BEHIND - LAST POINT = {dist}")
         if  dist > feasibility_distance:
             self.alive_placement_points.pop(1)  # drop the unfeasible docking point
             rospy.loginfo("REMOVED placement docking point on the back of the table (unfeasible to reach a point on the line)")
-            #print("XXXXXXXXXXXXXXXXXXXXX")
         return
     
     def tilt_camera(self, tilt_angle = -0.75):
@@ -674,32 +672,10 @@ class nodeA_navigation:
         x2 = self.placing_table_center[0]  # x of placing table
         y2 = self.placing_table_center[1]  # y of placing table
 
-        # # define some offsets to tune the docking points
-        # d1 = 0.113 # offset to define placement points slightly shifted towards pickup points
-        # d2 = self.table_side/2 + 0.39  # horizontal (x) offset of front region points 
-        # d3 = self.table_side + 0.02 # vertical (y) offset of the side pickup point
-        # d4 = self.table_side + 0.11 # horizontal (x) offset back region points
-        # d5 = self.table_side + 0.221 # vertical (y) offset of the vertices (transition points)
-
-        # x_avg = (x1+x2)/2 # x should be equal, in practice they have a small difference, we take the avg.
-        # # placement docking points
-        # self.docking_points["placing table front"] = (x_avg + d2, y2 - d1)  # placing a little bit closer than picking
-        # self.docking_points["placing table behind"] = (x_avg - d4, y2 - d1)
-
-        # # pickup docking points
-        # self.docking_points["picking table front"] = (x_avg + d2, y1)
-        # self.docking_points["picking table side"] = (x_avg + d1, y1 - d3)
-        # self.docking_points["picking table behind"] = (x_avg - d4, y1)
-
-        # # tansition points
-        # self.docking_points["picking table vert1"] = (x_avg + d5, y1 - d5)
-        # self.docking_points["picking table vert2"] = (x_avg - d4, y1 - d5)
-        # self.docking_points["corridor exit"] = (x_avg + d2, y2 + d5)            # staring point
-
         # define some offsets to tune the docking points
         d1 = 0.113                      # small offset to define points slightly shifted from table center
         d2 = self.table_side/2 + 0.39   # horizontal (x) offset of front region points 
-        d3 = self.table_side/2 + 0.31   # vertical (y) offset of the side points (vertices and picking table side)
+        d3 = self.table_side/2 + 0.26   # vertical (y) offset of the side points (vertices and picking table side)
         d4 = self.table_side/2 + 0.29   # horizontal (x) offset back region points
 
         x_avg = (x1+x2)/2 # x should be equal, in practice they have a small difference, we take the avg.
@@ -709,7 +685,7 @@ class nodeA_navigation:
         self.docking_points["placing table behind"] = (x_avg - d4, y2)
 
         # pickup docking points
-        self.docking_points["picking table front"] = (x_avg + d2, y1 + d1)
+        self.docking_points["picking table front"] = (x_avg + d2, y1 + d1 * 2)
         self.docking_points["picking table side"] = (x_avg + d1, y1 - d3)
         self.docking_points["picking table behind"] = (x_avg - d4, y1 + d1)
 

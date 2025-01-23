@@ -2,13 +2,11 @@ import rospy
 from geometry_msgs.msg import PoseStamped, Pose
 from moveit_commander import PlanningSceneInterface, MoveGroupCommander
 from std_msgs.msg import String, Int32
-import tf2_ros
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 from math import pi
 from tf.transformations import quaternion_from_euler
 from gazebo_ros_link_attacher.srv import Attach, AttachRequest
 from ir2425_group_09.msg import PlacingMessage  # custom message
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 class nodeA_placing_routine:
     def __init__ (self):
@@ -90,11 +88,11 @@ class nodeA_placing_routine:
             target_pose.position.y = y
             target_pose.position.z = z
 
-            z_offset = 0.31 + object_height / 2  # 30 cm above the object
+            z_offset = 0.31 + object_height / 2 
             if self.target_id in [1, 2, 3, 4, 5, 6]:
                 z_on_object = self.gripper_length + object_height / 2
             else:
-                z_on_object = self.gripper_length + object_height   # place the gripper about on half height of the object
+                z_on_object = self.gripper_length + object_height 
 
 
             self.intermediate_pose()
@@ -122,12 +120,12 @@ class nodeA_placing_routine:
             rospy.sleep(1.5)
 
             self.align_gripper_vertically(target_pose, z_offset)
-            rospy.loginfo("PLACING ROUTINE COMPLETED")
 
             # re create the collision object of the table
             self.table_pub.publish("placing")
 
             # move the arm to the default configuration
+            rospy.loginfo("Moving arm to safe configuration")
             self.move_to_safe_configuration()
 
             # remove collision object from planning scene
@@ -136,6 +134,8 @@ class nodeA_placing_routine:
 
             # notify nodeA_navigation that placing routine is completed
             self.feedback_pub.publish("placing_routine_completed")
+
+            rospy.loginfo("PLACING ROUTINE COMPLETED")
         except Exception as e:
             rospy.logerr(f"Error placing object: {str(e)}")
 
@@ -192,7 +192,6 @@ class nodeA_placing_routine:
 
         # Remove the object by name
         scene.remove_world_object(str(object_name))
-        rospy.sleep(1.0) # wait for scene update
 
     def open_gripper(self, opening=0.088):
         """
@@ -224,7 +223,7 @@ class nodeA_placing_routine:
 
             # Call the service
             self.attach_srv.call(req)
-            rospy.loginfo(f"Object {self.target_id} ({model_name}) detached from gripper")
+            rospy.loginfo(f"Object detached from gripper")
 
         except rospy.ServiceException as e:
             rospy.logerr(f"Failed to detach object: {str(e)}")
@@ -254,8 +253,6 @@ class nodeA_placing_routine:
         except Exception as e:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
 
-        rospy.loginfo("Arm moved to default configuration")
-
     def intermediate_pose(self):
         """
         Move the arm to the default configuration
@@ -278,8 +275,6 @@ class nodeA_placing_routine:
 
         except Exception as e:
             rospy.logerr(f"Failed to move arm to default configuration: {e}")
-
-        rospy.loginfo("Arm moved to default configuration")  
 
 if __name__ == '__main__':
     try:
