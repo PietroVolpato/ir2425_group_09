@@ -49,7 +49,7 @@ class NodeB:
 
         self.current_detections = None
         self.current_image = None
-        self.max_picking_distance = 0.8
+        self.max_picking_distance = 0.75
 
 
     def image_callback(self, msg):
@@ -70,21 +70,26 @@ class NodeB:
             roi_height = height // 3  # Calculate the midpoint of the image
             roi_width = width // 3     # Divide the image width into 6 parts
 
+            debug_image = self.current_image.copy()  # Copy the image for debugging
+
     
             for x in range(0, width-1, roi_width):
                 x1 = x
                 x2 = min(width, x + roi_width)  # Limita l'ultima ROI ai bordi dell'immagine
-                roi = hsv_image[roi_height:, x1:x2]
+                roi = hsv_image[roi_height:height, x1:x2]
 
                 for color, (lower, upper) in self.color_ranges.items():
                     mask = cv2.inRange(roi, np.array(lower), np.array(upper))
-                    if np.sum(mask) > 100:
+                    if np.sum(mask) > 3000:
                         detected_colors.append(color)
                         rospy.loginfo(f"Detected {color} in region: {x1}-{x2}")
                         break
 
-            self.publish_debug_image(current_image)
-            self.save_debug_image(current_image)
+                # Draw ROI rectangle on the debug image
+                cv2.rectangle(debug_image, (x1, roi_height), (x2, height), (0, 255, 0), 2)
+
+            
+            self.save_debug_image(debug_image)
     
             return detected_colors
     
@@ -150,7 +155,7 @@ class NodeB:
        
             detections_msg.task = current_task
 
-            self.object_pub.publish(detections_msg)
+            #self.object_pub.publish(detections_msg)
 
             if current_task == "placing":
                 self.object_pub.publish(detections_msg) # publish the detections for create planning scene
