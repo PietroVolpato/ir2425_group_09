@@ -109,9 +109,9 @@ class nodeC_picking_routine:
         if target_id in [1, 2, 3, 4, 5, 6]:
             z_on_object = self.gripper_length - self.object_heights[target_id] / 2
         else:
-            z_on_object = self.gripper_length + 0.025  # place the gripper about on half height of the object
-            # target_pose.position.x += (0.07 / 4)* math.cos(0.645006)
-            # target_pose.position.y += (0.07 / 4)* math.sin(0.645006)
+            z_on_object = self.gripper_length + 0.021  # place the gripper about on half height of the object
+            target_pose.position.x += 0.01
+            target_pose.position.y += 0.01
 
         rospy.sleep(1)  # give time planning scene to initialize
         rospy.loginfo(f"Starting PICKING ROUTINE. Target is obj {target_id} ({self.object_list[target_id]})")
