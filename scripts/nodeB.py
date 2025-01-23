@@ -11,11 +11,26 @@ from ir2425_group_09.msg import TargetObject  # custom message
 from std_msgs.msg import Int32
 import random
 import math
-
+import cv2
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image, CameraInfo
+import numpy as np
 
 class NodeB:
     def __init__(self):
         rospy.init_node('nodeB')
+
+        self.bridge = CvBridge()
+        # Simpler HSV ranges with more tolerance
+        self.color_ranges = {
+            'red': ([0, 242, 165], [2, 255, 191]),  # Per valori simili a #B30101
+            'green': ([58, 242, 178], [62, 255, 255]),  # Per valori simili a #02FF02
+            'blue': ([118, 242, 102], [123, 255, 178])  # Per valori simili a #0101A2
+        }
+
+        self.target_color = random.choice(['red', 'green', 'blue'])
+        rospy.loginfo(f"Target color set to: {self.target_color}")
+        # self.debug_image_pub = rospy.Publisher('/debug_image', Image, queue_size=10)
 
         # Define the publisher to communicate with node C
         self.object_pub = rospy.Publisher('/detected_objects', Detections, queue_size=10)
@@ -36,7 +51,53 @@ class NodeB:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.current_detections = None
-        self.max_picking_distance = 0.8
+        self.max_picking_distance = 0.75
+        self.current_image = None
+
+    def image_callback(self, msg):
+        try:
+            self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        except Exception as e:
+            rospy.logerr(f"Failed to process image: {e}")
+
+    def detect_image_colors(self):
+        if self.current_image is None:
+            rospy.logwarn("No image available for color detection")
+            return []
+    
+        detected_colors = []
+        try:
+            hsv_image = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2HSV)
+            height, width = hsv_image.shape[:2]
+            roi_height = height // 3  
+            roi_width = width // 3     
+
+            # debug_image = self.current_image.copy()  # Copy the image for debugging
+
+    
+            for x in range(0, width-1, roi_width):
+                x1 = x
+                x2 = min(width, x + roi_width)  
+                roi = hsv_image[roi_height:height, x1:x2]
+
+                for color, (lower, upper) in self.color_ranges.items():
+                    mask = cv2.inRange(roi, np.array(lower), np.array(upper))
+                    if np.sum(mask) > 3000:
+                        detected_colors.append(color)
+                        rospy.loginfo(f"Detected {color} in region: {x1}-{x2}")
+                        break
+
+                # Draw ROI rectangle on the debug image
+                # cv2.rectangle(debug_image, (x1, roi_height), (x2, height), (0, 255, 0), 2)
+
+            
+            # self.save_debug_image(debug_image)
+    
+            return detected_colors
+    
+        except Exception as e:
+            rospy.logerr(f"Error detecting colors: {e}")
+            return []
     
     def send_detections_callback(self, msg):
         """
@@ -56,6 +117,8 @@ class NodeB:
         try:
             # Lookup the transformation from the camera frame to the base frame
             transform = self.tf_buffer.lookup_transform("base_link", "xtion_rgb_optical_frame", rospy.Time(0))
+
+            object_list = []
 
             for detection in self.current_detections:
                 tag_id = detection.id[0]
@@ -80,6 +143,10 @@ class NodeB:
                         detections_msg.poses.append(transformed_pose.pose)
                         detections_msg.ids.append(tag_id)
                         detections_msg.types.append(type)
+
+                        # Append to object_list only if the object meets the conditions
+                        object_list.append((tag_id, type, transformed_pose.pose, y_obj))
+
                         if current_task == "picking":
                             rospy.loginfo(f"Detected reachable obj id {tag_id}, {type}. Planar dist = {planar_distance:.2f}") # print detected id and category of the object
                     
@@ -90,22 +157,39 @@ class NodeB:
         except tf2_ros.ExtrapolationException as e:
             rospy.loginfo(f"Transform extrapolation error: {e}")
         
+
+        # Sort the object_list by y_obj in descending order
+        object_list.sort(key=lambda obj: obj[3], reverse=True)  
+
+        # Print the sorted contents of object_list
+        rospy.loginfo("Object from left to right:")
+        for obj in object_list:
+            rospy.loginfo(f"Tag ID: {obj[0]}, Object Type: {obj[1]}")
+
         # Publish the detections message
         detections_msg.task = current_task
 
         if current_task == "placing":
             self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
         elif current_task == "picking":
-            target_id = -1
-            for elem in detections_msg.ids:
-                if elem in [4, 5, 6]:
-                    target_id = elem
-            
-            if target_id == -1:  # no valid target in the detections
-                self.feedback_pub.publish(Int32(data=target_id))  # send nodeA_navigation -1, which means no target in the detections
+            detected_colors = self.detect_image_colors()
+            rospy.loginfo(f"Detected colors in order: {detected_colors}")
+
+            valid_targets = []
+            for (tag_id, type, pose, _), color in zip(object_list, detected_colors):
+                #rospy.loginfo(f"Object ID: {tag_id}, Type: {type}, Color: {color}, Target Color: {self.target_color}")
+                if color == self.target_color:
+                    valid_targets.append((tag_id))
+                    rospy.loginfo(f"Found valid target with ID {tag_id} and correct color {color}")
+
+
+            if not valid_targets:
+                rospy.loginfo("No valid targets with correct color found")
+                self.feedback_pub.publish(Int32(data=-1))
                 return
 
             self.object_pub.publish(detections_msg)  # publish the detections for create planning scene
+            target_id = valid_targets[0] #
             index = detections_msg.ids.index(target_id)  # get target index
             target_pose = detections_msg.poses[index] # get target pose to print information
             x = target_pose.position.x
