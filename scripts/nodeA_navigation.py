@@ -25,7 +25,7 @@ class nodeA_navigation:
         self.detections_cmd = rospy.Publisher('/detections_command', String, queue_size=10)
 
         # publish the x,y,z of the placing target point in base link, plus the height of the picked object
-        self.placing_routine_pub = rospy.Publisher('/placing_routine', PlacingMessage, queue_size=10) # to move the camera angle
+        self.placing_routine_pub = rospy.Publisher('/placing_routine', PlacingMessage, queue_size=10)
         
         self.cmd_vel_pub = rospy.Publisher('/mobile_base_controller/cmd_vel', Twist, queue_size=10) # publish velocities
         rospy.Subscriber("/mobile_base_controller/cmd_vel", Twist, self.cmd_vel_callback)
@@ -285,7 +285,7 @@ class nodeA_navigation:
         """
         s = self.docking_points[self.current_point] # coordinates starting point
         t = self.docking_points[target_point]  # coordinates of terminal point
-        path = []  # oc the path does not include the initial (current) point
+        path = []  
 
         # same horizontal line of target: direct path
         if abs(s[0] - t[0]) < 0.2:  
@@ -452,7 +452,6 @@ class nodeA_navigation:
         try: 
             response = straight_line_srv(ready=True)
             m, q = response.coeffs
-            rospy.loginfo(f"Received coefficients: m = {m:.4f}, q = {q:.4f}")
             return (m, q)
         except rospy.ServiceException as e:
             rospy.logerr("Failed to call service /straight_line_srv: %s", str(e))
@@ -470,8 +469,6 @@ class nodeA_navigation:
         x_c, y_c, z_c = self.transform_point_to_frame(table_center_map, "map", "tag_10")  # get table center line frame
 
         x1 = x_c - self.table_side/2 #+ margin
-        x2 = x_c + self.table_side/2 
-        y1 = y_c - self.table_side/2
         y2 = y_c + self.table_side/2 #- margin
 
         distances = np.arange(0, 2, 0.14)  # to modify
@@ -480,7 +477,7 @@ class nodeA_navigation:
         for r in distances:
             x = r * math.cos(a)
             y = r * math.sin(a) + q
-            if x1 <= x <= x2 and y1 <= y <= y2:  # point inside the table surface
+            if x >= x1 and y <= y2:  # point inside the table surface
                 x_p, y_p, z_p = self.transform_point_to_frame((x,y,0), "tag_10", "map")  # transform point to map frame, which is always available
                 points.append((x_p, y_p, z_p))  # z is 0 in the line reference frame
             else:
@@ -498,7 +495,7 @@ class nodeA_navigation:
         if "placing table behind" not in self.alive_placement_points:  # placement point already dropped
             return
         
-        feasibility_distance = 0.65  # 75 surely too much
+        feasibility_distance = 0.65
 
         x_last_point = self.target_points_map_frame[-1][0]
         y_last_point = self.target_points_map_frame[-1][1]
@@ -745,6 +742,7 @@ class nodeA_navigation:
         rospy.loginfo("Moving to starting point (corridor exit)")
         
         self.rotate_to_yaw(theta)
+        rospy.loginfo(f"Received line coefficients: m = {m:.4f}, q = {q:.4f}")
         self.move_straight(ipo)
         self.current_point = "corridor exit"  # reached the starting point
 
