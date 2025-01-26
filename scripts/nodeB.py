@@ -23,9 +23,9 @@ class NodeB:
         self.bridge = CvBridge()
         # Simpler HSV ranges with more tolerance
         self.color_ranges = {
-            'red': ([0, 242, 165], [2, 255, 191]),  # Per valori simili a #B30101
-            'green': ([58, 242, 178], [62, 255, 255]),  # Per valori simili a #02FF02
-            'blue': ([118, 242, 102], [123, 255, 178])  # Per valori simili a #0101A2
+            'red': ([0, 242, 165], [2, 255, 191]),  # Similar values to  #B30101
+            'green': ([58, 242, 178], [62, 255, 255]),  # Similar values to  #02FF02
+            'blue': ([118, 242, 102], [123, 255, 178])  # Similar values to  #0101A2
         }
 
         self.flag = False
@@ -58,12 +58,21 @@ class NodeB:
         self.current_image = None
 
     def image_callback(self, msg):
+        """
+        Callback function for the image subscriber. Converts the ROS image message to an OpenCV image
+        """
         try:
             self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         except Exception as e:
             rospy.logerr(f"Failed to process image: {e}")
 
     def detect_image_colors(self):
+        """
+        Detects color in the current image using HSV color ranges.
+        Defines three ROIs and for each one:
+        - Search for the pixel count of pixels in the three color ranges.
+        - Pick the higher pixel count and select the color related to it.
+        """
         if self.current_image is None:
             rospy.logwarn("No image available for color detection")
             return []
@@ -75,7 +84,7 @@ class NodeB:
             roi_height = height // 3  
             roi_width = width // 3   
 
-            roi_counter = 1  # Contatore per identificare le ROI  
+            roi_counter = 1    
     
             for x in range(0, width-1, roi_width):
                 x1 = x + 20
@@ -97,7 +106,7 @@ class NodeB:
                     # Count the pixel for the current color
                     pixel_count = np.sum(mask) / 255  # Divide by 255 to get the number of pixels
                     # The mask sets to 255 pixels with matching colors and to 0 non-matching
-                    rospy.loginfo(f"ROI {roi_counter}, Color={color}, Pixels={pixel_count}")
+                    # rospy.loginfo(f"ROI {roi_counter}, Color={color}, Pixels={pixel_count}")
                     
                     if color == 'red':
                         red_count = pixel_count
@@ -128,10 +137,16 @@ class NodeB:
     def send_detections_callback(self, msg):
         """
         This callback plays when nodeA notify that reached a docking point, thus we are ready to get the detections.
-        Is is created a custom message Detections(), that contain the array of transformed (base_link) poses and the array
-        of respective object ids. The message in sent to nodeC_planning_scene to create the collision objects.
-        Furthermore, if Tiago is about to execute a picking routine it is selected the target object to pick,
-        according to the desired color, and its pose is sent to nodeC_picking_routine
+
+        It is created a custom message Detections(), that contain the array of transformed (base_link) poses and the array of respective object ids.
+        The message in sent to nodeC_planning_scene to create the collision objects.
+
+        If Tiago is about to execute a picking routine, to select the desired object of the wanted color:
+        - The object are listed from left to right positions with respect to tiago
+        - Through the detect_image_colors function are extracted colors in the same order 
+        - Colors and Objects then are matched
+        - If a corresponding Object of the wanted color is found proceed with the picking routine
+        - Else skip the current docking point
         """
 
         if not self.flag:
@@ -205,7 +220,7 @@ class NodeB:
 
             valid_targets = []
             for (tag_id, type, pose, _), color in zip(object_list, detected_colors):
-                #rospy.loginfo(f"Object ID: {tag_id}, Type: {type}, Color: {color}, Target Color: {self.target_color}")
+                # rospy.loginfo(f"Object ID: {tag_id}, Type: {type}, Color: {color}, Target Color: {self.target_color}")
                 if color == self.target_color:
                     valid_targets.append((tag_id))
                     rospy.loginfo(f"Found valid target with ID {tag_id} and correct color {color}")
