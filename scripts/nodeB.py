@@ -116,6 +116,8 @@ class NodeB:
                     elif max_count == blue_count:
                         detected_colors.append('blue')
 
+                roi_counter += 1  
+
     
             return detected_colors
     
