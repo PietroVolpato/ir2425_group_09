@@ -23,7 +23,7 @@ class NodeB:
         self.bridge = CvBridge()
         # Simpler HSV ranges with more tolerance
         self.color_ranges = {
-            'red': ([0, 242, 165], [2, 255, 191]),  # Similar values to  #B30101
+            'red': ([0, 242, 165], [5, 255, 245]),  # Similar values to  #B30101
             'green': ([58, 242, 178], [62, 255, 255]),  # Similar values to  #02FF02
             'blue': ([118, 242, 102], [123, 255, 178])  # Similar values to  #0101A2
         }
@@ -117,7 +117,7 @@ class NodeB:
                     
                 # Determine the color with highest pixel count
                 max_count = max(red_count, green_count, blue_count)
-                if max_count > 0: # Threshold, to increase if there are false positives
+                if max_count > 45: # Threshold, to increase if there are false positives
                     if max_count == red_count:
                         detected_colors.append('red')
                     elif max_count == green_count:
