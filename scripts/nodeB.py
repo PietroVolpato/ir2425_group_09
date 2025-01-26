@@ -9,7 +9,7 @@ from std_msgs.msg import String
 from ir2425_group_09.msg import Detections  # custom message
 from ir2425_group_09.msg import TargetObject  # custom message
 from std_msgs.msg import Int32
-import random
+import secrets
 import math
 import cv2
 from cv_bridge import CvBridge
@@ -29,7 +29,7 @@ class NodeB:
         }
 
         self.flag = False
-        self.target_color = random.choice(['red', 'green', 'blue'])
+        self.target_color = secrets.choice(['red', 'green', 'blue'])
 
         # Define the publisher to communicate with node C
         self.object_pub = rospy.Publisher('/detected_objects', Detections, queue_size=10)
@@ -54,7 +54,7 @@ class NodeB:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.current_detections = None
-        self.max_picking_distance = 0.75
+        self.max_picking_distance = 0.72
         self.current_image = None
 
     def image_callback(self, msg):
@@ -129,9 +129,9 @@ class NodeB:
         """
         This callback plays when nodeA notify that reached a docking point, thus we are ready to get the detections.
         Is is created a custom message Detections(), that contain the array of transformed (base_link) poses and the array
-        of respective object ids. In addition it is passed the id of the target object, which is the object that should be
-        grabbed.
-        If no detected object is a valid target, then targe
+        of respective object ids. The message in sent to nodeC_planning_scene to create the collision objects.
+        Furthermore, if Tiago is about to execute a picking routine it is selected the target object to pick,
+        according to the desired color, and its pose is sent to nodeC_picking_routine
         """
 
         if not self.flag:
