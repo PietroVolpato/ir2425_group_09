@@ -73,18 +73,49 @@ class NodeB:
             hsv_image = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2HSV)
             height, width = hsv_image.shape[:2]
             roi_height = height // 3  
-            roi_width = width // 3     
+            roi_width = width // 3   
+
+            roi_counter = 1  # Contatore per identificare le ROI  
     
             for x in range(0, width-1, roi_width):
                 x1 = x + 20
                 x2 = min(width, x + roi_width - 20)  
                 roi = hsv_image[int(roi_height):height - roi_height, x1:x2]
 
+                # Initialize counter for each color
+                red_count = 0
+                green_count = 0
+                blue_count = 0
+
+                # Count the number of pixels in each color range
+                # Iterate over each color range
                 for color, (lower, upper) in self.color_ranges.items():
+
+                    # Create a mask for the current color
                     mask = cv2.inRange(roi, np.array(lower), np.array(upper))
-                    if np.sum(mask) > 3000:
-                        detected_colors.append(color)
-                        break
+
+                    # Count the pixel for the current color
+                    pixel_count = np.sum(mask) / 255  # Divide by 255 to get the number of pixels
+                    # The mask sets to 255 pixels with matching colors and to 0 non-matching
+                    rospy.loginfo(f"ROI {roi_counter}, Color={color}, Pixels={pixel_count}")
+                    
+                    if color == 'red':
+                        red_count = pixel_count
+                    elif color == 'green':
+                        green_count = pixel_count
+                    elif color == 'blue':
+                        blue_count = pixel_count
+                    
+                # Determine the color with highest pixel count
+                max_count = max(red_count, green_count, blue_count)
+                if max_count > 0: # Threshold, to increase if there are false positives
+                    if max_count == red_count:
+                        detected_colors.append('red')
+                    elif max_count == green_count:
+                        detected_colors.append('green')
+                    elif max_count == blue_count:
+                        detected_colors.append('blue')
+
     
             return detected_colors
     
