@@ -468,8 +468,8 @@ class nodeA_navigation:
         table_center_map = (self.placing_table_center[0], self.placing_table_center[1], 0)
         x_c, y_c, z_c = self.transform_point_to_frame(table_center_map, "map", "tag_10")  # get table center line frame
 
-        x1 = x_c - self.table_side/2 #+ margin
-        y2 = y_c + self.table_side/2 #- margin
+        x1 = x_c - self.table_side/2 
+        y2 = y_c + self.table_side/2 - 0.08
 
         distances = np.arange(0, 2, 0.14)  # to modify
         points = []
