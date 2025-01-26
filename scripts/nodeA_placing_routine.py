@@ -12,36 +12,44 @@ class nodeA_placing_routine:
     def __init__ (self):
         rospy.init_node('nodeA_placing_routine')
 
-        # obtain coordinates of placing point
+        # Subscribe to the placing routine topic
         rospy.Subscriber('/placing_routine', PlacingMessage, self.placing_routine)
 
+        # Subscribe to the picking routine feedback topic
         rospy.Subscriber('/picking_routine_feedback', Int32, self.get_target_id)
 
+        # Publish to the table_co topic
         self.table_pub = rospy.Publisher('/table_co', String, queue_size=10)
 
-        # to notify nodeA_navigation outcome of placing routine
+        # Publish to the placing routine feedback topic
         self.feedback_pub = rospy.Publisher('/placing_routine_feedback', String, queue_size=10)
 
+        # Wait for the attach and detach services
         rospy.wait_for_service('/link_attacher_node/detach', timeout=5.0)
         self.attach_srv = rospy.ServiceProxy('/link_attacher_node/detach', Attach)
 
+        # Initialize the planning scene interface
         self.scene = PlanningSceneInterface()
 
+        # Initialize the MoveIt commander for the arm and gripper
         self.arm_group = MoveGroupCommander("arm") # Initialize the MoveIt commander for the arm
         self.arm_torso_group = MoveGroupCommander("arm_torso")  # Initialize the MoveIt commander for arm_torso
         self.gripper_group = MoveGroupCommander("gripper")  # Initialize the MoveIt commander for the gripper
 
+        # Set the planning time and scaling factors
         self.arm_torso_group.set_max_velocity_scaling_factor(0.5)
         self.arm_torso_group.set_max_acceleration_scaling_factor(0.5)
         self.arm_torso_group.set_planning_time(10.0) 
 
+        # Target id of the object to place
         self.target_id = None
 
+        # Object list where the key is the object id and the value is the object name
         self.object_list = {1 : 'hexagonal prism', 2: 'hexagonal prism', 3 : 'hexagonal prism',
                             4: 'cube', 5: 'cube', 6 : 'cube',
                             7: 'traingular prism', 8 : 'traingular prism', 9 : 'traingular prism'}
 
-        # map from object ids to model names in gazebo 
+        # Map from object ids to model names in gazebo 
         self.model_names = {
             1 : "Hexagon",
             2 : "Hexagon_2",
@@ -53,13 +61,15 @@ class nodeA_placing_routine:
             8 : "Triangle_8",
             9 : "Triangle_9"
         }
+
+        # Gripper length
         self.gripper_length = 0.226
         
     def placing_routine(self, msg):
         """
-        placing routine
+        Callback function for the placing routine topic
         """
-        # target placing point coordinates in base link
+        # Target placing point coordinates in base link
         x = msg.x
         y = msg.y
         z = msg.z
@@ -68,7 +78,7 @@ class nodeA_placing_routine:
         rospy.sleep(1)  # give time planning scene to initialize
         rospy.loginfo(f"starting PLACING ROUTINE. Selected placement point: ({x:.3f},{y:.3f},{z:.3f})")
 
-        # place the object on the target point
+        # Place the object on the target point
         self.place_object(x, y, z, object_height)
 
     def get_target_id(self, msg):
@@ -79,60 +89,75 @@ class nodeA_placing_routine:
 
     def place_object(self, x, y, z, object_height):
         """
-        Place the object on the target point
+        Perform the placing routine for the object.
+        The routine works as follows:
+            1. Move the arm to the intermediate configuration. This position is used to avoid collision with the table and consists in the arm that is raised up in Tiago's side.
+            2. Move the arm above the point calculated in the nodeA. The gripper is placed forced to point downwards and 31 cm above the target point.
+            3. Remove the collision object of the placing table.
+            4. Move the arm down to avoid dropping the object. For the cube and the hexagoanl prism, the gripper is placed half the object height, for the triangular prism, the gripper is placed at the object height.
+            5. Detach the object from the gripper.
+            6. Open the gripper.
+            7. Raise the arm above the object.
+            8. Re create the collision object of the placing table.
+            9. Move the arm to safe configuration. The position of the armn is the same as Tiago initial configuration at the beginning of the simuilation, i.e. with the arm close to tis body.
+            10. Publish the feedback of the picking routine.
         """
         try:
-            # move the gripper above the target point
+            # Move the gripper above the target point
             target_pose = Pose()
             target_pose.position.x = x
             target_pose.position.y = y
             target_pose.position.z = z
 
-            z_offset = 0.31 + object_height / 2 
+            # z offset for the gripper to be above the target point
+            z_offset = 0.31 + object_height / 2 # 31 cm plus half of the object height above the target point
+
+            # Second point for avoiding dropping the object on the table. 
             if self.target_id in [1, 2, 3, 4, 5, 6]:
-                z_on_object = self.gripper_length + object_height / 2
+                z_on_object = self.gripper_length + object_height / 2  # if it is a cube or hexagonal prism go down until the gripper is at half of the object height
             else:
-                z_on_object = self.gripper_length + object_height 
+                z_on_object = self.gripper_length + object_height  # if it is a triangular prism go down until the gripper is at the object height
 
-
+            # Move the arm to the intermediate pose
             self.intermediate_pose()
 
-            # align the gripper vertically
+            # Move the arm above the target point
             self.align_gripper_vertically(target_pose, z_offset)
             rospy.loginfo("Arm positioned above the target point")
 
-            # remove the collision object of the table
+            # Remove the collision object of the table
             self.remove_collision_object("placement_table")
 
+            # Go down again to avoid dropping the object on the table
             self.align_gripper_vertically(target_pose, z_on_object)
             rospy.loginfo("Object placed on the target point")
 
-
-            # detach object from gripper
+            # Detach object from gripper
             self.detach_object_from_gripper()
 
-            rospy.sleep(1.5)
+            rospy.sleep(1.5) # wait for the object to detach
 
-            # open the gripper
+            # Open the gripper
             self.open_gripper()
             rospy.loginfo("Gripper opened")
 
-            rospy.sleep(1.5)
+            rospy.sleep(1.5) # wait for the gripper to open
 
+            # After placing the object, move the arm above the object
             self.align_gripper_vertically(target_pose, z_offset)
 
-            # re create the collision object of the table
+            # Re create the collision object of the table
             self.table_pub.publish("placing")
 
-            # move the arm to the default configuration
+            # move the arm to the safe configuration
             rospy.loginfo("Moving arm to safe configuration")
             self.move_to_safe_configuration()
 
-            # remove collision object from planning scene
+            # Remove collision object from planning scene
             self.remove_collision_object("placement_table")
             self.remove_collision_object("pickup_table")
 
-            # notify nodeA_navigation that placing routine is completed
+            # Notify nodeA_navigation that placing routine is completed
             self.feedback_pub.publish("placing_routine_completed")
 
             rospy.loginfo("PLACING ROUTINE COMPLETED")
@@ -141,17 +166,11 @@ class nodeA_placing_routine:
 
     def align_gripper_vertically(self, target_pose, z_offset):
         """
-        This function place the gripper on the following pose:
-            - x and y are the same of the target pose
-            - z is the target pose + z_offset (with sign)
-            - the gripper points downwards
-        
-        If the current pose of the gripper and and the target pose have same x and y, then it is performed a vertical movement along
-        z axis by z_offset meters.
+        Move the arm to a position above the target point in the table, with the gripper pointing downwards.
         """
         try:
 
-            # create a pose 35 cm above target, with gripper pointing downwards
+            # Set the target pose for the arm
             goal_pose = PoseStamped()
             goal_pose.header.frame_id = "base_link"
 
@@ -160,6 +179,7 @@ class nodeA_placing_routine:
             goal_pose.pose.position.z = target_pose.position.z + z_offset
 
             q = quaternion_from_euler(0, pi/2, 0)  # clockwise rotation around y axis to point gripper downward
+
             # Set the orientation
             goal_pose.pose.orientation.x = q[0]
             goal_pose.pose.orientation.y = q[1]
@@ -210,8 +230,9 @@ class nodeA_placing_routine:
         """
         Detach the target object from the gripper using the Gazebo_ros_link_attacher plugin.
         """
-        model_name = self.model_names[self.target_id]
-        link_name = f"{model_name}::{model_name}_link"
+        # Get the model name and link name of the object
+        model_name = self.model_names[self.target_id] # name of the object in gazebo
+        link_name = f"{model_name}::{model_name}_link" # link name of the object in gazebo
     
         try:    
             # Create the detach request
@@ -232,7 +253,17 @@ class nodeA_placing_routine:
 
     def move_to_safe_configuration (self):
         """
-        Move the arm to the default configuration
+        Move the arm to the default configuration. This position is used to avoid collision with all the objects in the scene such as walls and tables while Tiago is moving around.
+        The position is defined by the following joint values:
+            -torso_lift_joint: 0.35
+            -arm_1_joint: 0.2
+            -arm_2_joint: -1.3
+            -arm_3_joint: -0.2
+            -arm_4_joint: 1.94
+            -arm_5_joint: -1.57
+            -arm_6_joint: 1.368
+            -arm_7_joint: 0
+        This values have been obtained by checking in the RViz interface the joint values of the arm when it is in the desired position.
         """
         self.intermediate_pose()
 
@@ -255,7 +286,17 @@ class nodeA_placing_routine:
 
     def intermediate_pose(self):
         """
-        Move the arm to the default configuration
+        Move the arm to the intermediate configuration. This position is used to avoid collision with the table and consists in the arm that is raised up in Tiago's side.
+        The position is defined by the following joint values:
+            -torso_lift_joint: 0.35
+            -arm_1_joint: 0.1
+            -arm_2_joint: 0
+            -arm_3_joint: -0.2
+            -arm_4_joint: 0
+            -arm_5_joint: -1.57
+            -arm_6_joint: 0.8
+            -arm_7_joint: 0
+        This values have been obtained by checking in the RViz interface the joint values of the arm when it is in the desired position.
         """
         configuration = {
                 'torso_lift_joint': 0.35,
