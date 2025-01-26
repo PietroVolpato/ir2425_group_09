@@ -21,6 +21,8 @@ You need to clone also the packages tiago_iaslab_simulation and gazebo_ros_link_
 
     - TERMINAL 3: roslaunch ir2425_group_09 launcher.launch
 
+3) Different runs of the code may vary the Moveit trajectory outcomes, this might result in some unexpected behaviours
+
 **IMPORTANT**:<br>
 Terminal 3 will provide constant feedback during the execution of the task.<br>
 You might need to wait until Tiago set up in the gazebo simulation: If you run the command in terminal 3<br>
