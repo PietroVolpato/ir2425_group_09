@@ -390,7 +390,7 @@ class nodeA_navigation:
         """
         self.counter_placed_objects += 1 
         if self.counter_placed_objects == 3:
-            rospy.loginfo("ALL 3 OBJECTS PLACED, TASK COMPLETED :)")
+            rospy.loginfo("ALL 3 OBJECTS PLACED, TASK COMPLETED")
         else:
             self.move_to_next_pickup_point()
             rospy.loginfo("Moving to next pickup point")
