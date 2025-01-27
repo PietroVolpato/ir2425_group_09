@@ -1,5 +1,3 @@
-# Assignment 2
-
 GROUP 09
 
 Filippo D'Emilio filippo.demilio@studenti.unipd.it <br>
